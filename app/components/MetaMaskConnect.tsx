@@ -10,22 +10,42 @@ export default function MetaMaskConnect() {
     checkWeb3Availability();
   }, []);
 
+  const isMobileDevice = () => {
+    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  };
+
   const checkWeb3Availability = () => {
     if (typeof window !== 'undefined') {
       const { ethereum } = window;
-      if (!ethereum) {
-        setShowInstallModal(true);
+      const isMobile = isMobileDevice();
+
+      // Check for mobile browser with injected web3
+      if (isMobile) {
+        if (!ethereum && !window.hasOwnProperty('ethereum')) {
+          setShowInstallModal(true);
+        }
+      } else {
+        // Desktop check
+        if (!ethereum) {
+          setShowInstallModal(true);
+        }
       }
     }
   };
 
   const handleInstallClick = () => {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      // Redirect to app store
-      window.open('https://metamask.app.link/dapp/test-app-pink-psi.vercel.app', '_blank');
+    if (isMobileDevice()) {
+      // Universal link for both iOS and Android
+      const dappUrl = encodeURIComponent('test-app-pink-psi.vercel.app');
+      const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}`;
+
+      // Try to open MetaMask if installed, otherwise go to app store
+      setTimeout(() => {
+        window.location.href = 'https://metamask.io/download/';
+      }, 2500);
+
+      window.location.href = metamaskAppLink;
     } else {
-      // Redirect to MetaMask extension
       window.open('https://metamask.io/download/', '_blank');
     }
   };
@@ -33,6 +53,8 @@ export default function MetaMaskConnect() {
   const connectMetaMask = async () => {
     try {
       let provider: EthereumProvider | undefined;
+
+      // Check for various mobile providers
       if (typeof window.ethereum !== 'undefined') {
         provider = window.ethereum;
       } else if (window.hasOwnProperty('ethereum')) {
@@ -40,13 +62,24 @@ export default function MetaMaskConnect() {
       }
 
       if (provider) {
-        const accounts = await provider.request({
-          method: 'eth_requestAccounts',
-        }) as string[];
+        try {
+          const accounts = await provider.request({
+            method: 'eth_requestAccounts',
+          }) as string[];
 
-        setUserAccount(accounts[0]);
+          setUserAccount(accounts[0]);
+          setShowInstallModal(false);
+        } catch (err) {
+          console.error('User rejected connection:', err);
+        }
       } else {
-        setShowInstallModal(true);
+        if (isMobileDevice()) {
+          // Try to open MetaMask mobile app
+          const dappUrl = encodeURIComponent('test-app-pink-psi.vercel.app');
+          window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+        } else {
+          setShowInstallModal(true);
+        }
       }
     } catch (error) {
       console.error('Error connecting:', error);
@@ -109,7 +142,9 @@ export default function MetaMaskConnect() {
               MetaMask Not Detected
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-6 text-center">
-              To connect your wallet, please install MetaMask first.
+              {isMobileDevice()
+                ? "Install MetaMask on your mobile device to connect"
+                : "To connect your wallet, please install MetaMask first"}
             </p>
             <div className="flex flex-col gap-3">
               <button
@@ -117,7 +152,7 @@ export default function MetaMaskConnect() {
                 className="w-full rounded-full bg-blue-600 text-white px-6 py-3 
                          font-semibold transition-all hover:bg-blue-700"
               >
-                Install MetaMask
+                {isMobileDevice() ? "Open MetaMask" : "Install MetaMask"}
               </button>
               <button
                 onClick={() => setShowInstallModal(false)}
