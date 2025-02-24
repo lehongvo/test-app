@@ -38,7 +38,6 @@ export default function MetaMaskConnect() {
     if (ethereum?.on) {
       ethereum.on('accountsChanged', handleAccountsChanged);
 
-      // Tạo các hàm xử lý riêng để tránh warning
       const handleConnect = () => {
         ethereum.request({ method: 'eth_accounts' })
           .then((accounts: unknown) => {
@@ -130,35 +129,48 @@ export default function MetaMaskConnect() {
   const handleDisconnect = async () => {
     try {
       if (window.ethereum?.request) {
-        await window.ethereum.request({
-          method: 'eth_accounts',
-          params: []
-        });
+        if (isMobileDevice()) {
+          try {
+            // Yêu cầu permissions mới để force disconnect
+            await window.ethereum.request({
+              method: 'wallet_requestPermissions',
+              params: [{ eth_accounts: {} }]
+            });
 
-        try {
+            // Kiểm tra lại accounts sau khi request permissions
+            const accounts = await window.ethereum.request({
+              method: 'eth_accounts'
+            }) as string[];
+
+            // Nếu không còn account nào được kết nối
+            if (!accounts || accounts.length === 0) {
+              setUserAccount(null);
+            }
+
+            // Thông báo cho user
+            alert('Please open MetaMask app and disconnect manually to complete the process. Then return to this app.');
+
+            // Mở MetaMask app
+            const dappUrl = getDappUrl();
+            if (dappUrl) {
+              window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+            }
+          } catch (error) {
+            console.error('Error requesting permissions:', error);
+            setUserAccount(null);
+          }
+        } else {
+          // Desktop flow
           await window.ethereum.request({
             method: 'wallet_revokePermissions',
             params: [{ eth_accounts: {} }]
           });
-        } catch (error) {
-          console.log('Revoke permissions failed:', error);
+          setUserAccount(null);
         }
-
-        setUserAccount(null);
-
-        if (isMobileDevice()) {
-          alert('Please manually disconnect in your MetaMask mobile app to complete the process.');
-        }
-      } else {
-        setUserAccount(null);
       }
     } catch (error) {
       console.error('Error disconnecting:', error);
       setUserAccount(null);
-
-      if (isMobileDevice()) {
-        alert('Please manually disconnect in your MetaMask mobile app.');
-      }
     }
   };
 
