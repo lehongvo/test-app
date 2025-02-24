@@ -37,24 +37,36 @@ export default function MetaMaskConnect() {
     const ethereum = window.ethereum;
     if (ethereum?.on) {
       ethereum.on('accountsChanged', handleAccountsChanged);
+
+      // Tạo các hàm xử lý riêng để tránh warning
+      const handleConnect = () => {
+        ethereum.request({ method: 'eth_accounts' })
+          .then((accounts: unknown) => {
+            if (Array.isArray(accounts) && accounts.length > 0) {
+              setUserAccount(accounts[0]);
+            }
+          })
+          .catch(console.error);
+      };
+
+      const handleDisconnectEvent = () => {
+        setUserAccount(null);
+      };
+
+      ethereum.on('connect', handleConnect);
+      ethereum.on('disconnect', handleDisconnectEvent);
+
+      // Cleanup
+      return () => {
+        if (ethereum?.removeListener) {
+          ethereum.removeListener('accountsChanged', handleAccountsChanged);
+          ethereum.removeListener('connect', handleConnect);
+          ethereum.removeListener('disconnect', handleDisconnectEvent);
+        }
+      };
     }
 
-    // Check initial accounts
-    if (ethereum?.request) {
-      ethereum.request({ method: 'eth_accounts' })
-        .then((accounts: unknown) => {
-          if (Array.isArray(accounts) && accounts.length > 0) {
-            setUserAccount(accounts[0]);
-          }
-        })
-        .catch(console.error);
-    }
-
-    return () => {
-      if (ethereum?.removeListener) {
-        ethereum.removeListener('accountsChanged', handleAccountsChanged);
-      }
-    };
+    return undefined;
   }, [handleAccountsChanged, checkWeb3Availability]);
 
   const isMobileDevice = () => {
@@ -115,8 +127,39 @@ export default function MetaMaskConnect() {
     }
   };
 
-  const handleDisconnect = () => {
-    setUserAccount(null);
+  const handleDisconnect = async () => {
+    try {
+      if (window.ethereum?.request) {
+        await window.ethereum.request({
+          method: 'eth_accounts',
+          params: []
+        });
+
+        try {
+          await window.ethereum.request({
+            method: 'wallet_revokePermissions',
+            params: [{ eth_accounts: {} }]
+          });
+        } catch (error) {
+          console.log('Revoke permissions failed:', error);
+        }
+
+        setUserAccount(null);
+
+        if (isMobileDevice()) {
+          alert('Please manually disconnect in your MetaMask mobile app to complete the process.');
+        }
+      } else {
+        setUserAccount(null);
+      }
+    } catch (error) {
+      console.error('Error disconnecting:', error);
+      setUserAccount(null);
+
+      if (isMobileDevice()) {
+        alert('Please manually disconnect in your MetaMask mobile app.');
+      }
+    }
   };
 
   return (
