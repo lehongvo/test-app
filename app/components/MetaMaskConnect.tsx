@@ -4,35 +4,60 @@ import { useEffect, useState } from 'react';
 
 export default function MetaMaskConnect() {
   const [userAccount, setUserAccount] = useState<string | null>(null);
-  const [isMetaMaskInstalled, setIsMetaMaskInstalled] = useState(false);
+  const [isWeb3Available, setIsWeb3Available] = useState(false);
 
   useEffect(() => {
-    if (typeof window.ethereum !== 'undefined') {
-      setIsMetaMaskInstalled(true);
-      
-      window.ethereum.on('accountsChanged', (accounts: string[]) => {
-        if (accounts.length === 0) {
-          handleDisconnect();
-        } else {
-          setUserAccount(accounts[0]);
-        }
-      });
-    }
+    checkWeb3Availability();
   }, []);
 
+  const checkWeb3Availability = () => {
+    // Check for various Web3 providers
+    if (typeof window !== 'undefined') {
+      const { ethereum } = window;
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (ethereum) {
+        setIsWeb3Available(true);
+      } else if (isMobile) {
+        // For mobile devices without MetaMask
+        if (window.hasOwnProperty('ethereum')) {
+          setIsWeb3Available(true);
+        } else {
+          // Redirect to MetaMask mobile app
+          const link = document.createElement('a');
+          link.href = 'https://metamask.app.link/dapp/your-website-url.com'; // Replace with your website URL
+          link.click();
+        }
+      }
+    }
+  };
+
   const connectMetaMask = async () => {
-    if (window.ethereum) {
-      try {
-        const accounts = await window.ethereum.request({
+    try {
+      let provider;
+      if (typeof window.ethereum !== 'undefined') {
+        provider = window.ethereum;
+      } else if (window.hasOwnProperty('ethereum')) {
+        provider = (window as any).ethereum;
+      }
+
+      if (provider) {
+        const accounts = await provider.request({
           method: 'eth_requestAccounts',
         }) as string[];
-        
+
         setUserAccount(accounts[0]);
-      } catch (error) {
-        console.error('Error connecting:', error);
+      } else {
+        // For mobile browsers without Web3
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+          window.open('https://metamask.app.link/dapp/your-website-url.com', '_blank'); // Replace with your website URL
+        } else {
+          alert('Please install MetaMask to connect.');
+        }
       }
-    } else {
-      alert('MetaMask is not installed. Please install MetaMask.');
+    } catch (error) {
+      console.error('Error connecting:', error);
     }
   };
 
@@ -46,7 +71,7 @@ export default function MetaMaskConnect() {
         setUserAccount(null);
       } catch (error) {
         console.error('Error disconnecting:', error);
-        alert('Failed to disconnect. Please try manually from MetaMask.');
+        alert('Failed to disconnect. Please try manually from your wallet.');
       }
     }
   };
@@ -56,8 +81,8 @@ export default function MetaMaskConnect() {
       <div className="text-center">
         <h2 className="text-2xl font-bold mb-2">MetaMask Connection</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          {userAccount 
-            ? `Connected: ${userAccount.slice(0, 6)}...${userAccount.slice(-4)}` 
+          {userAccount
+            ? `Connected: ${userAccount.slice(0, 6)}...${userAccount.slice(-4)}`
             : 'Disconnected'}
         </p>
       </div>
@@ -65,12 +90,12 @@ export default function MetaMaskConnect() {
       {!userAccount && (
         <button
           onClick={connectMetaMask}
-          disabled={!isMetaMaskInstalled}
+          disabled={!isWeb3Available}
           className="rounded-full bg-black dark:bg-white text-white dark:text-black px-6 py-3 
                    font-semibold transition-all hover:bg-gray-800 dark:hover:bg-gray-200
                    disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Connect to MetaMask
+          Connect Wallet
         </button>
       )}
 
