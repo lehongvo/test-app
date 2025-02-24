@@ -79,12 +79,13 @@ export default function MetaMaskConnect() {
       : '';
   };
 
-  const handleInstallClick = () => {
+  const handleInstallClick = async () => {
     if (isMobileDevice()) {
-      const dappUrl = getDappUrl();
-      if (dappUrl) {
-        const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}`;
-        window.location.href = metamaskAppLink;
+      const hasMetaMask = await checkForMetaMaskMobile();
+      if (hasMetaMask) {
+        await connectMetaMask();
+      } else {
+        window.location.href = 'https://metamask.io/download/';
       }
     } else {
       window.open('https://metamask.io/download/', '_blank');
@@ -114,8 +115,15 @@ export default function MetaMaskConnect() {
 
   const connectMetaMask = async () => {
     try {
-      let provider: EthereumProvider | undefined;
+      if (isMobileDevice()) {
+        const dappUrl = getDappUrl();
+        const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}?action=connect`;
 
+        window.location.href = metamaskAppLink;
+        return;
+      }
+
+      let provider: EthereumProvider | undefined;
       if (typeof window.ethereum !== 'undefined') {
         provider = window.ethereum;
       } else if (window.hasOwnProperty('ethereum')) {
@@ -131,20 +139,12 @@ export default function MetaMaskConnect() {
           setUserAccount(accounts[0]);
           setShowInstallModal(false);
 
-          // Yêu cầu ký message ngay sau khi connect
           await signMessage(accounts[0]);
         } catch (err) {
           console.error('User rejected connection:', err);
         }
       } else {
-        if (isMobileDevice()) {
-          const dappUrl = getDappUrl();
-          if (dappUrl) {
-            window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-          }
-        } else {
-          setShowInstallModal(true);
-        }
+        setShowInstallModal(true);
       }
     } catch (error) {
       console.error('Error connecting:', error);
@@ -200,6 +200,46 @@ export default function MetaMaskConnect() {
       setSignature(null);
     }
   };
+
+  const checkForMetaMaskMobile = () => {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        resolve(false);
+      }, 3000);
+
+      if (
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent
+        )
+      ) {
+        if (window.ethereum?.isMetaMask) {
+          clearTimeout(timeout);
+          resolve(true);
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      if (window.ethereum?.request) {
+        try {
+          const accounts = await window.ethereum.request({
+            method: 'eth_accounts',
+          }) as string[];
+
+          if (accounts.length > 0) {
+            setUserAccount(accounts[0]);
+            await signMessage(accounts[0]);
+          }
+        } catch (error) {
+          console.error('Error checking connection:', error);
+        }
+      }
+    };
+
+    checkConnection();
+  }, []);
 
   return (
     <>
