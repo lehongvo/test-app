@@ -1,6 +1,12 @@
 import { MetaMaskSDK, SDKProvider } from '@metamask/sdk';
 import { useEffect, useState } from 'react';
 
+// Thêm interface cho MetaMask error
+interface MetaMaskError extends Error {
+    code: number;
+    message: string;
+}
+
 const MetaMaskConnect = () => {
     const [account, setAccount] = useState<string>('');
     const [sdk, setSDK] = useState<MetaMaskSDK>();
@@ -15,18 +21,29 @@ const MetaMaskConnect = () => {
                     name: "My Dapp",
                     url: window.location.href,
                 },
-                checkInstallationImmediately: false,
+                checkInstallationImmediately: true,
                 logging: {
                     developerMode: false,
                 },
                 storage: {
                     enabled: true,
                 },
+                useDeeplink: true,
+                preferDesktop: false,
             });
 
             await MMSDK.init();
-            setSDK(MMSDK);
-            setProvider(MMSDK.getProvider());
+            const provider = MMSDK.getProvider();
+
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+            if (provider?.isMetaMask && isMobile) {
+                setSDK(MMSDK);
+                setProvider(provider);
+            } else {
+                setSDK(MMSDK);
+                setProvider(provider);
+            }
         };
 
         initSDK();
@@ -92,17 +109,38 @@ const MetaMaskConnect = () => {
                 throw new Error('Provider không hợp lệ');
             }
 
-            const accounts = await provider.request({
-                method: 'eth_requestAccounts',
-                params: [],
-            }) as string[];
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-            if (accounts?.[0]) {
-                setAccount(accounts[0]);
-                setConnected(true);
+            if (isMobile && window.ethereum) {
+                const accounts = await window.ethereum.request({
+                    method: 'eth_requestAccounts',
+                    params: [],
+                }) as string[];
+
+                if (accounts?.[0]) {
+                    setAccount(accounts[0]);
+                    setConnected(true);
+                }
+            } else {
+                const accounts = await provider.request({
+                    method: 'eth_requestAccounts',
+                    params: [],
+                }) as string[];
+
+                if (accounts?.[0]) {
+                    setAccount(accounts[0]);
+                    setConnected(true);
+                }
             }
         } catch (error) {
             console.error('Lỗi kết nối:', error);
+            // Sử dụng type assertion với interface đã định nghĩa
+            if ((error as MetaMaskError)?.code === 4001) {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                if (isMobile) {
+                    window.location.href = 'https://metamask.app.link/dapp/' + window.location.host;
+                }
+            }
         }
     };
 
