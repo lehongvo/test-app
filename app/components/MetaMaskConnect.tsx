@@ -33,18 +33,19 @@ export default function MetaMaskConnect() {
     }
   };
 
+  const getDappUrl = () => {
+    return typeof window !== 'undefined'
+      ? encodeURIComponent(window.location.host)
+      : '';
+  };
+
   const handleInstallClick = () => {
     if (isMobileDevice()) {
-      // Universal link for both iOS and Android
-      const dappUrl = encodeURIComponent('test-app-pink-psi.vercel.app');
-      const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}`;
-
-      // Try to open MetaMask if installed, otherwise go to app store
-      setTimeout(() => {
-        window.location.href = 'https://metamask.io/download/';
-      }, 2500);
-
-      window.location.href = metamaskAppLink;
+      const dappUrl = getDappUrl();
+      if (dappUrl) {
+        const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}`;
+        window.location.href = metamaskAppLink;
+      }
     } else {
       window.open('https://metamask.io/download/', '_blank');
     }
@@ -54,7 +55,6 @@ export default function MetaMaskConnect() {
     try {
       let provider: EthereumProvider | undefined;
 
-      // Check for various mobile providers
       if (typeof window.ethereum !== 'undefined') {
         provider = window.ethereum;
       } else if (window.hasOwnProperty('ethereum')) {
@@ -74,9 +74,10 @@ export default function MetaMaskConnect() {
         }
       } else {
         if (isMobileDevice()) {
-          // Try to open MetaMask mobile app
-          const dappUrl = encodeURIComponent('test-app-pink-psi.vercel.app');
-          window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+          const dappUrl = getDappUrl();
+          if (dappUrl) {
+            window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+          }
         } else {
           setShowInstallModal(true);
         }
