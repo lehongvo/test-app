@@ -7,6 +7,7 @@ interface EthereumProvider {
   isMetaMask?: boolean;
   request: (args: RequestArguments) => Promise<unknown>;
   on: (event: string, callback: (params: string[]) => void) => void;
+  removeListener: (event: string, callback: (params: string[]) => void) => void;
 }
 
 interface Window {

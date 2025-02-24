@@ -1,36 +1,64 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 export default function MetaMaskConnect() {
   const [userAccount, setUserAccount] = useState<string | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
 
-  useEffect(() => {
-    checkWeb3Availability();
-  }, []);
-
-  const isMobileDevice = () => {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  };
-
-  const checkWeb3Availability = () => {
+  const checkWeb3Availability = useCallback(() => {
     if (typeof window !== 'undefined') {
       const { ethereum } = window;
       const isMobile = isMobileDevice();
 
-      // Check for mobile browser with injected web3
       if (isMobile) {
         if (!ethereum && !window.hasOwnProperty('ethereum')) {
           setShowInstallModal(true);
         }
       } else {
-        // Desktop check
         if (!ethereum) {
           setShowInstallModal(true);
         }
       }
     }
+  }, []);
+
+  const handleAccountsChanged = useCallback((accounts: string[]) => {
+    if (accounts.length === 0) {
+      setUserAccount(null);
+    } else {
+      setUserAccount(accounts[0]);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkWeb3Availability();
+
+    const ethereum = window.ethereum;
+    if (ethereum?.on) {
+      ethereum.on('accountsChanged', handleAccountsChanged);
+    }
+
+    // Check initial accounts
+    if (ethereum?.request) {
+      ethereum.request({ method: 'eth_accounts' })
+        .then((accounts: unknown) => {
+          if (Array.isArray(accounts) && accounts.length > 0) {
+            setUserAccount(accounts[0]);
+          }
+        })
+        .catch(console.error);
+    }
+
+    return () => {
+      if (ethereum?.removeListener) {
+        ethereum.removeListener('accountsChanged', handleAccountsChanged);
+      }
+    };
+  }, [handleAccountsChanged, checkWeb3Availability]);
+
+  const isMobileDevice = () => {
+    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   };
 
   const getDappUrl = () => {
@@ -87,19 +115,8 @@ export default function MetaMaskConnect() {
     }
   };
 
-  const handleDisconnect = async () => {
-    if (window.ethereum && window.ethereum.request) {
-      try {
-        await window.ethereum.request({
-          method: 'wallet_revokePermissions',
-          params: [{ eth_accounts: {} }],
-        });
-        setUserAccount(null);
-      } catch (error) {
-        console.error('Error disconnecting:', error);
-        alert('Failed to disconnect. Please try manually from your wallet.');
-      }
-    }
+  const handleDisconnect = () => {
+    setUserAccount(null);
   };
 
   return (
