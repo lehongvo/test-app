@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 export default function MetaMaskConnect() {
   const [userAccount, setUserAccount] = useState<string | null>(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [signature, setSignature] = useState<string | null>(null);
 
   const checkWeb3Availability = useCallback(() => {
     if (typeof window !== 'undefined') {
@@ -90,6 +91,27 @@ export default function MetaMaskConnect() {
     }
   };
 
+  const signMessage = async (account: string) => {
+    try {
+      if (window.ethereum?.request) {
+        const message = 'Sign messgae with link: https://test-app-six-amber.vercel.app/';
+        // Yêu cầu ký message
+        const signature = await window.ethereum.request({
+          method: 'personal_sign',
+          params: [message, account]
+        });
+
+        setSignature(signature as string);
+        console.log('Signature:', signature);
+      }
+    } catch (error) {
+      console.error('Error signing message:', error);
+      // Nếu user từ chối ký, disconnect
+      setUserAccount(null);
+      alert('Signature is required to use this application');
+    }
+  };
+
   const connectMetaMask = async () => {
     try {
       let provider: EthereumProvider | undefined;
@@ -108,6 +130,9 @@ export default function MetaMaskConnect() {
 
           setUserAccount(accounts[0]);
           setShowInstallModal(false);
+
+          // Yêu cầu ký message ngay sau khi connect
+          await signMessage(accounts[0]);
         } catch (err) {
           console.error('User rejected connection:', err);
         }
@@ -168,9 +193,11 @@ export default function MetaMaskConnect() {
           setUserAccount(null);
         }
       }
+      setSignature(null); // Reset signature when disconnecting
     } catch (error) {
       console.error('Error disconnecting:', error);
       setUserAccount(null);
+      setSignature(null);
     }
   };
 
@@ -184,6 +211,11 @@ export default function MetaMaskConnect() {
               ? `Connected: ${userAccount.slice(0, 6)}...${userAccount.slice(-4)}`
               : 'Disconnected'}
           </p>
+          {signature && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              Message signed ✓
+            </p>
+          )}
         </div>
 
         {!userAccount && (
