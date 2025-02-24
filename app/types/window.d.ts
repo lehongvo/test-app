@@ -11,4 +11,5 @@ interface EthereumProvider {
 
 interface Window {
   ethereum?: EthereumProvider;
+  [key: string]: unknown;
 }
