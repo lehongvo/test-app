@@ -6,6 +6,7 @@ interface RequestArguments {
 // Định nghĩa kiểu cho từng loại event
 interface EthereumEvents {
   accountsChanged: (accounts: string[]) => void;
+  chainChanged: (chainId: string) => void;
   connect: (connectInfo: { chainId: string }) => void;
   disconnect: (error: { code: number; message: string }) => void;
 }

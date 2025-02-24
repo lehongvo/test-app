@@ -1,254 +1,347 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+
+interface WalletState {
+  accounts: string[];
+  chainId: string | null;
+  connected: boolean;
+  isMetaMask: boolean;
+}
+
+interface MetaMaskError {
+  code: number;
+  message: string;
+}
 
 export default function MetaMaskConnect() {
-  const [userAccount, setUserAccount] = useState<string | null>(null);
+  const [walletState, setWalletState] = useState<WalletState>({
+    accounts: [],
+    chainId: null,
+    connected: false,
+    isMetaMask: false
+  });
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const checkWeb3Availability = useCallback(() => {
-    if (typeof window !== 'undefined') {
-      const { ethereum } = window;
-      const isMobile = isMobileDevice();
-
-      if (isMobile) {
-        if (!ethereum && !window.hasOwnProperty('ethereum')) {
-          setShowInstallModal(true);
-        }
-      } else {
-        if (!ethereum) {
-          setShowInstallModal(true);
-        }
-      }
-    }
-  }, []);
-
-  const handleAccountsChanged = useCallback((accounts: string[]) => {
-    if (accounts.length === 0) {
-      setUserAccount(null);
-    } else {
-      setUserAccount(accounts[0]);
-    }
-  }, []);
-
-  useEffect(() => {
-    checkWeb3Availability();
-
-    const ethereum = window.ethereum;
-    if (ethereum?.on) {
-      ethereum.on('accountsChanged', handleAccountsChanged);
-
-      const handleConnect = () => {
-        ethereum.request({ method: 'eth_accounts' })
-          .then((accounts: unknown) => {
-            if (Array.isArray(accounts) && accounts.length > 0) {
-              setUserAccount(accounts[0]);
-            }
-          })
-          .catch(console.error);
-      };
-
-      const handleDisconnectEvent = () => {
-        setUserAccount(null);
-      };
-
-      ethereum.on('connect', handleConnect);
-      ethereum.on('disconnect', handleDisconnectEvent);
-
-      // Cleanup
-      return () => {
-        if (ethereum?.removeListener) {
-          ethereum.removeListener('accountsChanged', handleAccountsChanged);
-          ethereum.removeListener('connect', handleConnect);
-          ethereum.removeListener('disconnect', handleDisconnectEvent);
-        }
-      };
-    }
-
-    return undefined;
-  }, [handleAccountsChanged, checkWeb3Availability]);
+  // Constants
+  const REQUIRED_CHAIN_ID = '0x1'; // Mainnet - Change as needed
+  const DEEP_LINK_PREFIX = 'https://metamask.app.link/';
 
   const isMobileDevice = () => {
     return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   };
 
-  const getDappUrl = () => {
-    return typeof window !== 'undefined'
-      ? encodeURIComponent(window.location.host)
+  const getDeepLink = () => {
+    const currentUrl = typeof window !== 'undefined'
+      ? window.location.href
       : '';
+    // Remove any existing deep link parameters
+    const cleanUrl = currentUrl.split('?')[0];
+    return `${DEEP_LINK_PREFIX}dapp/${encodeURIComponent(cleanUrl)}`;
   };
 
-  const handleInstallClick = async () => {
-    if (isMobileDevice()) {
-      const hasMetaMask = await checkForMetaMaskMobile();
-      if (hasMetaMask) {
-        await connectMetaMask();
-      } else {
-        window.location.href = 'https://metamask.io/download/';
-      }
-    } else {
-      window.open('https://metamask.io/download/', '_blank');
-    }
-  };
-
-  const signMessage = async (account: string) => {
-    try {
-      if (window.ethereum?.request) {
-        const message = 'Sign messgae with link: https://test-app-six-amber.vercel.app/';
-        // Yêu cầu ký message
-        const signature = await window.ethereum.request({
-          method: 'personal_sign',
-          params: [message, account]
-        });
-
-        setSignature(signature as string);
-        console.log('Signature:', signature);
-      }
-    } catch (error) {
-      console.error('Error signing message:', error);
-      // Nếu user từ chối ký, disconnect
-      setUserAccount(null);
-      alert('Signature is required to use this application');
-    }
-  };
-
-  const connectMetaMask = async () => {
-    try {
-      if (isMobileDevice()) {
-        const dappUrl = getDappUrl();
-        const metamaskAppLink = `https://metamask.app.link/dapp/${dappUrl}?action=connect`;
-
-        window.location.href = metamaskAppLink;
-        return;
-      }
-
-      let provider: EthereumProvider | undefined;
-      if (typeof window.ethereum !== 'undefined') {
-        provider = window.ethereum;
-      } else if (window.hasOwnProperty('ethereum')) {
-        provider = window.ethereum;
-      }
-
-      if (provider) {
-        try {
-          const accounts = await provider.request({
-            method: 'eth_requestAccounts',
-          }) as string[];
-
-          setUserAccount(accounts[0]);
-          setShowInstallModal(false);
-
-          await signMessage(accounts[0]);
-        } catch (err) {
-          console.error('User rejected connection:', err);
-        }
-      } else {
-        setShowInstallModal(true);
-      }
-    } catch (error) {
-      console.error('Error connecting:', error);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      if (window.ethereum?.request) {
-        if (isMobileDevice()) {
-          try {
-            // Yêu cầu permissions mới để force disconnect
-            await window.ethereum.request({
-              method: 'wallet_requestPermissions',
-              params: [{ eth_accounts: {} }]
-            });
-
-            // Kiểm tra lại accounts sau khi request permissions
-            const accounts = await window.ethereum.request({
-              method: 'eth_accounts'
-            }) as string[];
-
-            // Nếu không còn account nào được kết nối
-            if (!accounts || accounts.length === 0) {
-              setUserAccount(null);
-            }
-
-            // Thông báo cho user
-            alert('Please open MetaMask app and disconnect manually to complete the process. Then return to this app.');
-
-            // Mở MetaMask app
-            const dappUrl = getDappUrl();
-            if (dappUrl) {
-              window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-            }
-          } catch (error) {
-            console.error('Error requesting permissions:', error);
-            setUserAccount(null);
-          }
-        } else {
-          // Desktop flow
-          await window.ethereum.request({
-            method: 'wallet_revokePermissions',
-            params: [{ eth_accounts: {} }]
-          });
-          setUserAccount(null);
-        }
-      }
-      setSignature(null); // Reset signature when disconnecting
-    } catch (error) {
-      console.error('Error disconnecting:', error);
-      setUserAccount(null);
-      setSignature(null);
-    }
-  };
-
-  const checkForMetaMaskMobile = () => {
+  const checkMetaMaskInstallation = async (): Promise<boolean> => {
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve(false);
-      }, 3000);
+      const timeout = setTimeout(() => resolve(false), 3000);
 
-      if (
-        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-          navigator.userAgent
-        )
-      ) {
+      const checkProvider = () => {
         if (window.ethereum?.isMetaMask) {
           clearTimeout(timeout);
           resolve(true);
         }
-      }
+      };
+
+      // Check immediately
+      checkProvider();
+
+      // Also set up a listener for provider injection
+      window.addEventListener('ethereum#initialized', checkProvider, { once: true });
     });
   };
 
-  useEffect(() => {
-    const checkConnection = async () => {
-      if (window.ethereum?.request) {
-        try {
-          const accounts = await window.ethereum.request({
-            method: 'eth_accounts',
-          }) as string[];
+  const checkNetwork = async () => {
+    if (!window.ethereum) return false;
 
-          if (accounts.length > 0) {
-            setUserAccount(accounts[0]);
-            await signMessage(accounts[0]);
+    try {
+      const chainId = await window.ethereum.request({
+        method: 'eth_chainId'
+      });
+
+      if (chainId !== REQUIRED_CHAIN_ID) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: REQUIRED_CHAIN_ID }],
+          });
+          return true;
+        } catch (error: unknown) {
+          const walletError = error as MetaMaskError;
+          if (walletError.code === 4902) {
+            setError('Please add Ethereum network to your wallet');
           }
-        } catch (error) {
-          console.error('Error checking connection:', error);
+          return false;
         }
+      }
+      return true;
+    } catch (error) {
+      console.error('Error checking network:', error);
+      return false;
+    }
+  };
+
+  const handleMobileConnection = async () => {
+    const hasMetaMask = await checkMetaMaskInstallation();
+
+    if (hasMetaMask) {
+      // MetaMask is installed, proceed with connection
+      return connectWithMetaMask();
+    } else {
+      // Redirect to MetaMask with return URL
+      const deepLink = getDeepLink();
+      window.location.href = deepLink;
+      return false;
+    }
+  };
+
+  const signMessage = async (account: string): Promise<boolean> => {
+    try {
+      if (!window.ethereum?.request) return false;
+
+      const timestamp = Date.now();
+      const message = `Sign in to our dApp\n\nOrigin: ${window.location.origin}\nTimestamp: ${timestamp}`;
+
+      const signature = await window.ethereum.request({
+        method: 'personal_sign',
+        params: [message, account],
+      });
+
+      if (signature) {
+        setSignature(signature as string);
+        localStorage.setItem('lastSignature', JSON.stringify({
+          signature,
+          timestamp,
+          account
+        }));
+        return true;
+      }
+      return false;
+    } catch (error: unknown) {
+      const walletError = error as MetaMaskError;
+      if (walletError.code === 4001) {
+        setError('Please sign the message to continue');
+      } else {
+        setError('Error signing message. Please try again.');
+      }
+      return false;
+    }
+  };
+
+  const connectWithMetaMask = async () => {
+    if (!window.ethereum) {
+      setShowInstallModal(true);
+      return false;
+    }
+
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const correctNetwork = await checkNetwork();
+      if (!correctNetwork) return false;
+
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      }) as string[];
+
+      if (accounts.length > 0) {
+        const chainId = await window.ethereum.request({
+          method: 'eth_chainId'
+        }) as string;
+
+        setWalletState({
+          accounts,
+          chainId,
+          connected: true,
+          isMetaMask: window.ethereum.isMetaMask || false
+        });
+
+        await signMessage(accounts[0]);
+        return true;
+      }
+      return false;
+    } catch (error: unknown) {
+      console.error('Connection error:', error);
+      const walletError = error as MetaMaskError;
+      if (walletError.code === 4001) {
+        setError('Please accept the connection request');
+      } else {
+        setError('Error connecting wallet. Please try again.');
+      }
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const connect = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      if (isMobileDevice()) {
+        await handleMobileConnection();
+      } else {
+        await connectWithMetaMask();
+      }
+    } catch (error) {
+      console.error('Connection error:', error);
+      setError('Failed to connect. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const disconnect = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      if (isMobileDevice()) {
+        // On mobile, just clear the state and inform user
+        setWalletState({
+          accounts: [],
+          chainId: null,
+          connected: false,
+          isMetaMask: false
+        });
+        setSignature(null);
+        localStorage.removeItem('lastSignature');
+
+        // Redirect to MetaMask app for manual disconnect
+        alert('Please open MetaMask app to disconnect');
+        window.location.href = DEEP_LINK_PREFIX;
+      } else {
+        // On desktop, try to revoke permissions
+        if (window.ethereum?.request) {
+          await window.ethereum.request({
+            method: 'wallet_revokePermissions',
+            params: [{ eth_accounts: {} }]
+          });
+        }
+
+        setWalletState({
+          accounts: [],
+          chainId: null,
+          connected: false,
+          isMetaMask: false
+        });
+        setSignature(null);
+        localStorage.removeItem('lastSignature');
+      }
+    } catch (error) {
+      console.error('Disconnect error:', error);
+      setError('Error disconnecting. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Setup event listeners
+  useEffect(() => {
+    if (!window.ethereum) return;
+
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        setWalletState(prev => ({
+          ...prev,
+          accounts: [],
+          connected: false
+        }));
+        setSignature(null);
+      } else {
+        setWalletState(prev => ({
+          ...prev,
+          accounts,
+          connected: true
+        }));
       }
     };
 
-    checkConnection();
-  }, []);
+    const handleChainChanged = (chainId: string) => {
+      setWalletState(prev => ({
+        ...prev,
+        chainId
+      }));
+
+      if (chainId !== REQUIRED_CHAIN_ID) {
+        setError('Please switch to Ethereum Mainnet');
+      } else {
+        setError(null);
+      }
+    };
+
+    const handleConnect = () => {
+      setWalletState(prev => ({
+        ...prev,
+        connected: true
+      }));
+    };
+
+    const handleDisconnect = () => {
+      setWalletState({
+        accounts: [],
+        chainId: null,
+        connected: false,
+        isMetaMask: false
+      });
+      setSignature(null);
+    };
+
+    // Add event listeners
+    const ethereum = window.ethereum;
+    ethereum.on('accountsChanged', handleAccountsChanged);
+    ethereum.on('chainChanged', handleChainChanged);
+    ethereum.on('connect', handleConnect);
+    ethereum.on('disconnect', handleDisconnect);
+
+    // Check initial connection
+    ethereum.request({ method: 'eth_accounts' })
+      .then((result: unknown) => {
+        // Type guard for the response
+        if (Array.isArray(result) && result.every(item => typeof item === 'string')) {
+          if (result.length > 0) {
+            handleAccountsChanged(result);
+          }
+        }
+      })
+      .catch(console.error);
+
+    // Cleanup function
+    return () => {
+      const provider = window.ethereum;
+      if (provider) {
+        provider.removeListener('accountsChanged', handleAccountsChanged);
+        provider.removeListener('chainChanged', handleChainChanged);
+        provider.removeListener('connect', handleConnect);
+        provider.removeListener('disconnect', handleDisconnect);
+      }
+    };
+  }, [REQUIRED_CHAIN_ID]); // Add REQUIRED_CHAIN_ID to dependencies
 
   return (
     <>
       <div className="flex flex-col items-center gap-4">
         <div className="text-center">
           <h2 className="text-2xl font-bold mb-2">MetaMask Connection</h2>
+          {error && (
+            <p className="text-red-500 dark:text-red-400 mb-2">{error}</p>
+          )}
           <p className="text-gray-600 dark:text-gray-400">
-            {userAccount
-              ? `Connected: ${userAccount.slice(0, 6)}...${userAccount.slice(-4)}`
+            {walletState.accounts[0]
+              ? `Connected: ${walletState.accounts[0].slice(0, 6)}...${walletState.accounts[0].slice(-4)}`
               : 'Disconnected'}
           </p>
           {signature && (
@@ -256,30 +349,38 @@ export default function MetaMaskConnect() {
               Message signed ✓
             </p>
           )}
+          {walletState.chainId && walletState.chainId !== REQUIRED_CHAIN_ID && (
+            <p className="text-yellow-500 dark:text-yellow-400 mt-2">
+              Please switch to Ethereum Mainnet
+            </p>
+          )}
         </div>
 
-        {!userAccount && (
+        {!walletState.connected && (
           <button
-            onClick={connectMetaMask}
-            className="rounded-full bg-black dark:bg-white text-white dark:text-black px-6 py-3 
-                     font-semibold transition-all hover:bg-gray-800 dark:hover:bg-gray-200"
+            onClick={connect}
+            disabled={isLoading}
+            className={`rounded-full bg-black dark:bg-white text-white dark:text-black px-6 py-3 
+                     font-semibold transition-all hover:bg-gray-800 dark:hover:bg-gray-200
+                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            Connect Wallet
+            {isLoading ? 'Connecting...' : 'Connect Wallet'}
           </button>
         )}
 
-        {userAccount && (
+        {walletState.connected && (
           <button
-            onClick={handleDisconnect}
-            className="rounded-full border border-black/[.08] dark:border-white/[.145] px-6 py-3
-                     font-semibold transition-colors hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a]"
+            onClick={disconnect}
+            disabled={isLoading}
+            className={`rounded-full border border-black/[.08] dark:border-white/[.145] px-6 py-3
+                     font-semibold transition-colors hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a]
+                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            Disconnect
+            {isLoading ? 'Disconnecting...' : 'Disconnect'}
           </button>
         )}
       </div>
 
-      {/* Install MetaMask Modal */}
       {showInstallModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full">
@@ -293,11 +394,13 @@ export default function MetaMaskConnect() {
             </p>
             <div className="flex flex-col gap-3">
               <button
-                onClick={handleInstallClick}
+                onClick={() => {
+                  window.location.href = 'https://metamask.io/download/';
+                }}
                 className="w-full rounded-full bg-blue-600 text-white px-6 py-3 
                          font-semibold transition-all hover:bg-blue-700"
               >
-                {isMobileDevice() ? "Open MetaMask" : "Install MetaMask"}
+                Install MetaMask
               </button>
               <button
                 onClick={() => setShowInstallModal(false)}
@@ -313,4 +416,4 @@ export default function MetaMaskConnect() {
       )}
     </>
   );
-} 
+}
