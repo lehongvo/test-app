@@ -102,6 +102,7 @@ export default function MetaMaskConnect() {
   const [totalSupply, setTotalSupply] = useState<string>('');
   const [isFaucetLoading, setIsFaucetLoading] = useState(false);
   const [balance, setBalance] = useState<string>('');
+  const [txHash, setTxHash] = useState<string | null>(null);
 
   // Constants
   const REQUIRED_CHAIN_ID = '0x2761'; // Japan Open Chain Testnet
@@ -450,6 +451,7 @@ export default function MetaMaskConnect() {
     try {
       setIsFaucetLoading(true);
       setError(null);
+      setTxHash(null);
 
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
@@ -484,6 +486,7 @@ export default function MetaMaskConnect() {
         gasPrice: Math.floor(+gasPrice * (1.3)),
       });
       console.log('tx01', tx.hash);
+      setTxHash(tx.hash);
       await tx.wait();
       console.log('tx02', tx.hash);
 
@@ -610,6 +613,16 @@ export default function MetaMaskConnect() {
               <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
                 10 WB tokens have been sent to your wallet.
               </p>
+              {txHash && (
+                <a
+                  href={`https://explorer.testnet.japanopenchain.org/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:text-blue-700 underline block mb-4"
+                >
+                  View Transaction on Explorer ↗
+                </a>
+              )}
               <button
                 onClick={() => setShowSuccessModal(false)}
                 className="rounded-full bg-green-600 text-white px-6 py-2 
