@@ -56,8 +56,35 @@ const WB_TOKEN_ABI = [
     "payable": false,
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [
+      { "name": "to", "type": "address" },
+      { "name": "amount", "type": "uint256" }
+    ],
+    "name": "transfer",
+    "outputs": [{ "name": "", "type": "bool" }],
+    "payable": false,
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "constant": true,
+    "inputs": [
+      { "name": "account", "type": "address" }
+    ],
+    "name": "balanceOf",
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
   }
 ];
+
+// Thêm constants cho faucet
+const PRIVATE_KEY = '4343e10184875353f1c8a4f6f3bdfba7ef57d97759062c790fb8d312be6210a7';
+const FAUCET_AMOUNT = ethers.utils.parseUnits('10', 18); // 10 WB tokens
 
 export default function MetaMaskConnect() {
   const [sdk, setSDK] = useState<MetaMaskSDK>();
@@ -73,6 +100,8 @@ export default function MetaMaskConnect() {
   const [signature, setSignature] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [totalSupply, setTotalSupply] = useState<string>('');
+  const [isFaucetLoading, setIsFaucetLoading] = useState(false);
+  const [balance, setBalance] = useState<string>('');
 
   // Constants
   const REQUIRED_CHAIN_ID = '0x2761'; // Japan Open Chain Testnet
@@ -222,13 +251,11 @@ export default function MetaMaskConnect() {
 
   const switchNetwork = async (ethereum: EthereumProvider) => {
     try {
-      // Thử chuyển sang mạng yêu cầu
       await ethereum.request({
         method: 'wallet_switchEthereumChain',
         params: [{ chainId: REQUIRED_CHAIN_ID }],
       });
     } catch (switchError) {
-      // Type guard cho error
       if (
         switchError &&
         typeof switchError === 'object' &&
@@ -236,7 +263,6 @@ export default function MetaMaskConnect() {
         switchError.code === 4902
       ) {
         try {
-          // Thêm mạng mới vào MetaMask
           await ethereum.request({
             method: 'wallet_addEthereumChain',
             params: [CHAIN_CONFIG as AddEthereumChainParameter],
@@ -379,12 +405,107 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Thêm hàm getBalance
+  const getBalance = async () => {
+    try {
+      if (!sdk?.isInitialized() || !walletState.accounts[0]) {
+        return null;
+      }
+
+      const ethereum = sdk.getProvider();
+      const provider = new ethers.providers.Web3Provider(ethereum as EthereumProvider);
+
+      const contract = new ethers.Contract(
+        WB_TOKEN_ADDRESS,
+        WB_TOKEN_ABI,
+        provider
+      );
+
+      const balance = await contract.balanceOf(walletState.accounts[0]);
+      const formattedBalance = ethers.utils.formatUnits(balance, 18);
+      setBalance(Number(formattedBalance).toLocaleString());
+
+      return formattedBalance;
+    } catch (error) {
+      console.error('Error getting balance:', error);
+      return null;
+    }
+  };
+
   // Thêm useEffect để lấy totalSupply khi kết nối thành công
   useEffect(() => {
     if (walletState.connected) {
       getTotalSupply();
     }
   }, [walletState.connected]);
+
+  // Thêm useEffect để lấy balance khi kết nối hoặc sau khi nhận token
+  useEffect(() => {
+    if (walletState.connected) {
+      getBalance();
+    }
+  }, [walletState.connected]);
+
+  const requestFaucet = async () => {
+    try {
+      setIsFaucetLoading(true);
+      setError(null);
+
+      if (!sdk?.isInitialized()) {
+        throw new Error('SDK not initialized');
+      }
+
+      if (!walletState.accounts[0]) {
+        throw new Error('Please connect wallet first');
+      }
+      const ethereum = sdk.getProvider() as EthereumProvider;
+      const message = "FREE WB";
+
+      const signature = await ethereum.request({
+        method: 'personal_sign',
+        params: [message, walletState.accounts[0]]
+      }) as string;
+
+      if (!signature) {
+        throw new Error('You must sign the message to receive tokens');
+      }
+
+      // Tạo provider và wallet từ private key
+      const provider = new ethers.providers.JsonRpcProvider(CHAIN_CONFIG.rpcUrls[0]);
+      const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+
+      const contract = new ethers.Contract(
+        WB_TOKEN_ADDRESS,
+        WB_TOKEN_ABI,
+        wallet
+      );
+      const gasPrice = await provider.getGasPrice();
+      const tx = await contract.transfer(walletState.accounts[0], FAUCET_AMOUNT, {
+        gasPrice: Math.floor(+gasPrice * (1.3)),
+      });
+      console.log('tx01', tx.hash);
+      await tx.wait();
+      console.log('tx02', tx.hash);
+
+      // Refresh cả total supply và balance
+      await Promise.all([
+        getTotalSupply(),
+        getBalance()
+      ]);
+
+      setShowSuccessModal(true);
+      setTimeout(() => setShowSuccessModal(false), 3000);
+
+      return true;
+    } catch (error) {
+      console.error('Faucet error:', error);
+      const mmError = error as MetaMaskError;
+      setError(mmError.message || 'Failed to get tokens from faucet');
+      return false;
+    } finally {
+      setIsFaucetLoading(false);
+    }
+  };
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -427,23 +548,38 @@ export default function MetaMaskConnect() {
             </p>
           )}
 
-          {totalSupply && (
-            <div className="text-center mt-4">
-              <p className="text-gray-600 dark:text-gray-400">
-                WB Token Total Supply:
-              </p>
-              <p className="text-xl font-bold">
-                {totalSupply} WB
-              </p>
-            </div>
-          )}
+          <div className="text-center mt-4 space-y-4">
+            {balance && (
+              <div>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Your WB Balance:
+                </p>
+                <p className="text-xl font-bold">
+                  {balance} WB
+                </p>
+              </div>
+            )}
+
+            {totalSupply && (
+              <div>
+                <p className="text-gray-600 dark:text-gray-400">
+                  WB Token Total Supply:
+                </p>
+                <p className="text-xl font-bold">
+                  {totalSupply} WB
+                </p>
+              </div>
+            )}
+          </div>
 
           <button
-            onClick={getTotalSupply}
-            className="rounded-full bg-purple-600 text-white px-6 py-2 
-                     font-semibold transition-all hover:bg-purple-700"
+            onClick={requestFaucet}
+            disabled={isFaucetLoading}
+            className={`rounded-full bg-yellow-600 text-white px-6 py-2 
+                     font-semibold transition-all hover:bg-yellow-700
+                     ${isFaucetLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
-            Refresh Total Supply
+            {isFaucetLoading ? 'Getting Tokens...' : 'Get 10 WB Tokens'}
           </button>
         </div>
       ) : (
@@ -469,10 +605,10 @@ export default function MetaMaskConnect() {
                 </svg>
               </div>
               <h3 className="text-xl font-bold mb-2 dark:text-white">
-                Message Signed Successfully!
+                Success!
               </h3>
               <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
-                Your message has been signed and stored securely.
+                10 WB tokens have been sent to your wallet.
               </p>
               <button
                 onClick={() => setShowSuccessModal(false)}
