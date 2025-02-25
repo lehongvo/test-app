@@ -1,6 +1,6 @@
 'use client';
 
-import { MetaMaskSDK } from '@metamask/sdk';
+import { CommunicationLayerPreference, MetaMaskSDK } from '@metamask/sdk';
 import { ConnectionStatus, EventType, ServiceStatus } from '@metamask/sdk-communication-layer';
 import { useEffect, useState } from 'react';
 
@@ -56,6 +56,7 @@ export default function MetaMaskConnect() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Constants
   const REQUIRED_CHAIN_ID = '0x2761'; // Japan Open Chain Testnet
@@ -73,26 +74,49 @@ export default function MetaMaskConnect() {
 
   useEffect(() => {
     const initSDK = async () => {
-      const MMSDK = new MetaMaskSDK({
-        dappMetadata: {
-          name: "My Dapp",
-          url: window.location.href,
-        },
-        checkInstallationImmediately: false,
-        useDeeplink: true,
-        logging: {
-          developerMode: false,
-        },
-        storage: {
-          enabled: true,
-        },
-      });
+      try {
+        const MMSDK = new MetaMaskSDK({
+          dappMetadata: {
+            name: "My Web3 App",
+            url: window.location.href,
+          },
+          checkInstallationImmediately: false,
+          useDeeplink: true,
+          communicationServerUrl: undefined,
+          logging: {
+            developerMode: false,
+          },
+          storage: {
+            enabled: true,
+          },
+          communicationLayerPreference: CommunicationLayerPreference.SOCKET,
+          preferDesktop: false,
+          _source: "metamask-sdk",
+          readonlyRPCMap: {
+            [REQUIRED_CHAIN_ID]: CHAIN_CONFIG.rpcUrls[0]
+          }
+        });
 
-      await MMSDK.init();
-      setSDK(MMSDK);
+        await MMSDK.init();
+
+        if (!MMSDK.isInitialized()) {
+          throw new Error('SDK initialization failed');
+        }
+
+        setSDK(MMSDK);
+      } catch (error) {
+        console.error('Error initializing MetaMask SDK:', error);
+        setError('Failed to initialize MetaMask SDK');
+      }
     };
 
     initSDK();
+
+    return () => {
+      if (sdk?.isInitialized()) {
+        sdk.terminate();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -144,16 +168,32 @@ export default function MetaMaskConnect() {
     sdk.on(EventType.SERVICE_STATUS, onServiceStatus);
 
     // Check initial connection
-    if (ethereum?.selectedAddress) {
-      const address = ethereum.selectedAddress as string;
-      setWalletState(prev => ({
-        ...prev,
-        accounts: [address],
-        chainId: ethereum.chainId as string || null,
-        connected: true,
-        isMetaMask: true
-      }));
-    }
+    const checkInitialConnection = async () => {
+      try {
+        if (ethereum) {
+          const accounts = await ethereum.request({
+            method: 'eth_accounts'
+          }) as string[];
+
+          if (accounts.length > 0) {
+            const chainId = await ethereum.request({
+              method: 'eth_chainId'
+            }) as string;
+
+            setWalletState({
+              accounts,
+              chainId,
+              connected: true,
+              isMetaMask: true
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error checking initial connection:', error);
+      }
+    };
+
+    checkInitialConnection();
 
     return () => {
       ethereum?.removeListener('chainChanged', onChainChanged);
@@ -267,12 +307,17 @@ export default function MetaMaskConnect() {
       setSignature(signature);
       console.log('Signature:', signature);
 
-      // Lưu signature vào localStorage nếu cần
+      // Lưu signature vào localStorage
       localStorage.setItem('lastSignature', JSON.stringify({
         signature,
         timestamp,
         account: walletState.accounts[0]
       }));
+
+      // Hiển thị popup thành công
+      setShowSuccessModal(true);
+      // Tự động ẩn popup sau 3 giây
+      setTimeout(() => setShowSuccessModal(false), 3000);
 
       return true;
     } catch (error) {
@@ -334,6 +379,34 @@ export default function MetaMaskConnect() {
         >
           {isLoading ? 'Connecting...' : 'Connect Wallet'}
         </button>
+      )}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full animate-fade-in">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold mb-2 dark:text-white">
+                Message Signed Successfully!
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 text-sm mb-4">
+                Your message has been signed and stored securely.
+              </p>
+              <button
+                onClick={() => setShowSuccessModal(false)}
+                className="rounded-full bg-green-600 text-white px-6 py-2 
+                         font-semibold transition-all hover:bg-green-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
