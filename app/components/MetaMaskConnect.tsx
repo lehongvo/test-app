@@ -1,5 +1,7 @@
 'use client';
 
+import { MetaMaskSDK } from '@metamask/sdk';
+import { ConnectionStatus, EventType, ServiceStatus } from '@metamask/sdk-communication-layer';
 import { useEffect, useState } from 'react';
 
 interface WalletState {
@@ -14,175 +16,183 @@ interface MetaMaskError {
   message: string;
 }
 
+// Thêm interface cho request params
+interface RequestArguments {
+  method: string;
+  params?: unknown[];
+}
+
+// Thêm interface cho ethereum provider
+interface EthereumProvider {
+  request: (args: RequestArguments) => Promise<unknown>;
+  isMetaMask?: boolean;
+  chainId?: string;
+  selectedAddress?: string;
+  on: (event: string, callback: (...args: unknown[]) => void) => void;
+  removeListener: (event: string, callback: (...args: unknown[]) => void) => void;
+}
+
+interface AddEthereumChainParameter {
+  chainId: string;
+  chainName: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls?: string[];
+}
+
 export default function MetaMaskConnect() {
+  const [sdk, setSDK] = useState<MetaMaskSDK>();
   const [walletState, setWalletState] = useState<WalletState>({
     accounts: [],
     chainId: null,
     connected: false,
     isMetaMask: false
   });
-  const [showInstallModal, setShowInstallModal] = useState(false);
-  const [signature, setSignature] = useState<string | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signature, setSignature] = useState<string | null>(null);
 
   // Constants
-  const REQUIRED_CHAIN_ID = '0x1'; // Mainnet - Change as needed
-  const DEEP_LINK_PREFIX = 'https://metamask.app.link/';
-
-  const isMobileDevice = () => {
-    return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const REQUIRED_CHAIN_ID = '0x2761'; // Japan Open Chain Testnet
+  const CHAIN_CONFIG = {
+    chainId: REQUIRED_CHAIN_ID,
+    chainName: 'Japan Open Chain Testnet',
+    nativeCurrency: {
+      name: 'JOCT',
+      symbol: 'JOCT',
+      decimals: 18
+    },
+    rpcUrls: ['https://rpc-1.testnet.japanopenchain.org:8545'],
+    blockExplorerUrls: ['https://testnet.japanopenchain.org']
   };
 
-  const getDeepLink = () => {
-    const currentUrl = typeof window !== 'undefined'
-      ? window.location.href
-      : '';
-    // Remove any existing deep link parameters
-    const cleanUrl = currentUrl.split('?')[0];
-    return `${DEEP_LINK_PREFIX}dapp/${encodeURIComponent(cleanUrl)}`;
-  };
-
-  const checkMetaMaskInstallation = async (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve(false), 3000);
-
-      const checkProvider = () => {
-        if (window.ethereum?.isMetaMask) {
-          clearTimeout(timeout);
-          resolve(true);
-        }
-      };
-
-      // Check immediately
-      checkProvider();
-
-      // Also set up a listener for provider injection
-      window.addEventListener('ethereum#initialized', checkProvider, { once: true });
-    });
-  };
-
-  const checkNetwork = async () => {
-    if (!window.ethereum) return false;
-
-    try {
-      const chainId = await window.ethereum.request({
-        method: 'eth_chainId'
+  useEffect(() => {
+    const initSDK = async () => {
+      const MMSDK = new MetaMaskSDK({
+        dappMetadata: {
+          name: "My Dapp",
+          url: window.location.href,
+        },
+        checkInstallationImmediately: false,
+        useDeeplink: true,
+        logging: {
+          developerMode: false,
+        },
+        storage: {
+          enabled: true,
+        },
       });
 
-      if (chainId !== REQUIRED_CHAIN_ID) {
+      await MMSDK.init();
+      setSDK(MMSDK);
+    };
+
+    initSDK();
+  }, []);
+
+  useEffect(() => {
+    if (!sdk?.isInitialized()) return;
+
+    const ethereum = sdk.getProvider();
+
+    const onChainChanged = (...args: unknown[]) => {
+      const chainId = args[0] as string;
+      setWalletState(prev => ({
+        ...prev,
+        chainId
+      }));
+    };
+
+    const onAccountsChanged = (...args: unknown[]) => {
+      const accounts = args[0] as string[];
+      setWalletState(prev => ({
+        ...prev,
+        accounts,
+        connected: accounts.length > 0
+      }));
+    };
+
+    const onConnect = () => {
+      setWalletState(prev => ({
+        ...prev,
+        connected: true
+      }));
+    };
+
+    const onDisconnect = () => {
+      setWalletState({
+        accounts: [],
+        chainId: null,
+        connected: false,
+        isMetaMask: false
+      });
+    };
+
+    const onServiceStatus = (_serviceStatus: ServiceStatus) => {
+      setServiceStatus(_serviceStatus);
+    };
+
+    ethereum?.on('chainChanged', onChainChanged);
+    ethereum?.on('accountsChanged', onAccountsChanged);
+    ethereum?.on('connect', onConnect);
+    ethereum?.on('disconnect', onDisconnect);
+    sdk.on(EventType.SERVICE_STATUS, onServiceStatus);
+
+    // Check initial connection
+    if (ethereum?.selectedAddress) {
+      const address = ethereum.selectedAddress as string;
+      setWalletState(prev => ({
+        ...prev,
+        accounts: [address],
+        chainId: ethereum.chainId as string || null,
+        connected: true,
+        isMetaMask: true
+      }));
+    }
+
+    return () => {
+      ethereum?.removeListener('chainChanged', onChainChanged);
+      ethereum?.removeListener('accountsChanged', onAccountsChanged);
+      ethereum?.removeListener('connect', onConnect);
+      ethereum?.removeListener('disconnect', onDisconnect);
+      sdk.removeListener(EventType.SERVICE_STATUS, onServiceStatus);
+    };
+  }, [sdk]);
+
+  const switchNetwork = async (ethereum: EthereumProvider) => {
+    try {
+      // Thử chuyển sang mạng yêu cầu
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: REQUIRED_CHAIN_ID }],
+      });
+    } catch (switchError) {
+      // Type guard cho error
+      if (
+        switchError &&
+        typeof switchError === 'object' &&
+        'code' in switchError &&
+        switchError.code === 4902
+      ) {
         try {
-          await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: REQUIRED_CHAIN_ID }],
+          // Thêm mạng mới vào MetaMask
+          await ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [CHAIN_CONFIG as AddEthereumChainParameter],
           });
-          return true;
-        } catch (error: unknown) {
-          const walletError = error as MetaMaskError;
-          if (walletError.code === 4902) {
-            setError('Please add Ethereum network to your wallet');
-          }
-          return false;
+        } catch (addError) {
+          console.error('Error adding chain:', addError);
+          throw addError;
         }
-      }
-      return true;
-    } catch (error) {
-      console.error('Error checking network:', error);
-      return false;
-    }
-  };
-
-  const handleMobileConnection = async () => {
-    const hasMetaMask = await checkMetaMaskInstallation();
-
-    if (hasMetaMask) {
-      // MetaMask is installed, proceed with connection
-      return connectWithMetaMask();
-    } else {
-      // Redirect to MetaMask with return URL
-      const deepLink = getDeepLink();
-      window.location.href = deepLink;
-      return false;
-    }
-  };
-
-  const signMessage = async (account: string): Promise<boolean> => {
-    try {
-      if (!window.ethereum?.request) return false;
-
-      const timestamp = Date.now();
-      const message = `Sign in to our dApp\n\nOrigin: ${window.location.origin}\nTimestamp: ${timestamp}`;
-
-      const signature = await window.ethereum.request({
-        method: 'personal_sign',
-        params: [message, account],
-      });
-
-      if (signature) {
-        setSignature(signature as string);
-        localStorage.setItem('lastSignature', JSON.stringify({
-          signature,
-          timestamp,
-          account
-        }));
-        return true;
-      }
-      return false;
-    } catch (error: unknown) {
-      const walletError = error as MetaMaskError;
-      if (walletError.code === 4001) {
-        setError('Please sign the message to continue');
       } else {
-        setError('Error signing message. Please try again.');
+        console.error('Error switching chain:', switchError);
+        throw switchError;
       }
-      return false;
-    }
-  };
-
-  const connectWithMetaMask = async () => {
-    if (!window.ethereum) {
-      setShowInstallModal(true);
-      return false;
-    }
-
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const correctNetwork = await checkNetwork();
-      if (!correctNetwork) return false;
-
-      const accounts = await window.ethereum.request({
-        method: 'eth_requestAccounts',
-      }) as string[];
-
-      if (accounts.length > 0) {
-        const chainId = await window.ethereum.request({
-          method: 'eth_chainId'
-        }) as string;
-
-        setWalletState({
-          accounts,
-          chainId,
-          connected: true,
-          isMetaMask: window.ethereum.isMetaMask || false
-        });
-
-        await signMessage(accounts[0]);
-        return true;
-      }
-      return false;
-    } catch (error: unknown) {
-      console.error('Connection error:', error);
-      const walletError = error as MetaMaskError;
-      if (walletError.code === 4001) {
-        setError('Please accept the connection request');
-      } else {
-        setError('Error connecting wallet. Please try again.');
-      }
-      return false;
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -191,229 +201,140 @@ export default function MetaMaskConnect() {
       setIsLoading(true);
       setError(null);
 
-      if (isMobileDevice()) {
-        await handleMobileConnection();
-      } else {
-        await connectWithMetaMask();
+      if (!sdk?.isInitialized()) {
+        throw new Error('SDK not initialized');
+      }
+
+      const ethereum = sdk.getProvider();
+
+      const accounts = await ethereum?.request({
+        method: 'eth_requestAccounts'
+      }) as string[];
+
+      if (accounts?.length > 0) {
+        await switchNetwork(ethereum as EthereumProvider);
+
+        const chainId = await ethereum?.request({
+          method: 'eth_chainId'
+        }) as string;
+
+        setWalletState({
+          accounts,
+          chainId,
+          connected: true,
+          isMetaMask: true
+        });
       }
     } catch (error) {
       console.error('Connection error:', error);
-      setError('Failed to connect. Please try again.');
+      const mmError = error as MetaMaskError;
+      setError(mmError.message || 'Failed to connect');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const disconnect = async () => {
+  const disconnect = () => {
+    sdk?.terminate();
+    setWalletState({
+      accounts: [],
+      chainId: null,
+      connected: false,
+      isMetaMask: false
+    });
+  };
+
+  const signMessage = async () => {
     try {
-      setIsLoading(true);
-      setError(null);
-
-      if (isMobileDevice()) {
-        // On mobile, just clear the state and inform user
-        setWalletState({
-          accounts: [],
-          chainId: null,
-          connected: false,
-          isMetaMask: false
-        });
-        setSignature(null);
-        localStorage.removeItem('lastSignature');
-
-        // Redirect to MetaMask app for manual disconnect
-        alert('Please open MetaMask app to disconnect');
-        window.location.href = DEEP_LINK_PREFIX;
-      } else {
-        // On desktop, try to revoke permissions
-        if (window.ethereum?.request) {
-          await window.ethereum.request({
-            method: 'wallet_revokePermissions',
-            params: [{ eth_accounts: {} }]
-          });
-        }
-
-        setWalletState({
-          accounts: [],
-          chainId: null,
-          connected: false,
-          isMetaMask: false
-        });
-        setSignature(null);
-        localStorage.removeItem('lastSignature');
+      if (!sdk?.isInitialized()) {
+        throw new Error('SDK not initialized');
       }
+
+      const ethereum = sdk.getProvider() as EthereumProvider;
+
+      if (!walletState.accounts[0]) {
+        throw new Error('Please connect wallet first');
+      }
+
+      const timestamp = Date.now();
+      const message = `Sign in to our dApp\n\nOrigin: ${window.location.origin}\nTimestamp: ${timestamp}`;
+
+      const signature = await ethereum.request({
+        method: 'personal_sign',
+        params: [message, walletState.accounts[0]]
+      }) as string;
+
+      setSignature(signature);
+      console.log('Signature:', signature);
+
+      // Lưu signature vào localStorage nếu cần
+      localStorage.setItem('lastSignature', JSON.stringify({
+        signature,
+        timestamp,
+        account: walletState.accounts[0]
+      }));
+
+      return true;
     } catch (error) {
-      console.error('Disconnect error:', error);
-      setError('Error disconnecting. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.error('Signing error:', error);
+      const mmError = error as MetaMaskError;
+      setError(mmError.message || 'Failed to sign message');
+      return false;
     }
   };
-
-  // Setup event listeners
-  useEffect(() => {
-    if (!window.ethereum) return;
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        setWalletState(prev => ({
-          ...prev,
-          accounts: [],
-          connected: false
-        }));
-        setSignature(null);
-      } else {
-        setWalletState(prev => ({
-          ...prev,
-          accounts,
-          connected: true
-        }));
-      }
-    };
-
-    const handleChainChanged = (chainId: string) => {
-      setWalletState(prev => ({
-        ...prev,
-        chainId
-      }));
-
-      if (chainId !== REQUIRED_CHAIN_ID) {
-        setError('Please switch to Ethereum Mainnet');
-      } else {
-        setError(null);
-      }
-    };
-
-    const handleConnect = () => {
-      setWalletState(prev => ({
-        ...prev,
-        connected: true
-      }));
-    };
-
-    const handleDisconnect = () => {
-      setWalletState({
-        accounts: [],
-        chainId: null,
-        connected: false,
-        isMetaMask: false
-      });
-      setSignature(null);
-    };
-
-    // Add event listeners
-    const ethereum = window.ethereum;
-    ethereum.on('accountsChanged', handleAccountsChanged);
-    ethereum.on('chainChanged', handleChainChanged);
-    ethereum.on('connect', handleConnect);
-    ethereum.on('disconnect', handleDisconnect);
-
-    // Check initial connection
-    ethereum.request({ method: 'eth_accounts' })
-      .then((result: unknown) => {
-        // Type guard for the response
-        if (Array.isArray(result) && result.every(item => typeof item === 'string')) {
-          if (result.length > 0) {
-            handleAccountsChanged(result);
-          }
-        }
-      })
-      .catch(console.error);
-
-    // Cleanup function
-    return () => {
-      const provider = window.ethereum;
-      if (provider) {
-        provider.removeListener('accountsChanged', handleAccountsChanged);
-        provider.removeListener('chainChanged', handleChainChanged);
-        provider.removeListener('connect', handleConnect);
-        provider.removeListener('disconnect', handleDisconnect);
-      }
-    };
-  }, [REQUIRED_CHAIN_ID]); // Add REQUIRED_CHAIN_ID to dependencies
 
   return (
-    <>
-      <div className="flex flex-col items-center gap-4">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">MetaMask Connection</h2>
-          {error && (
-            <p className="text-red-500 dark:text-red-400 mb-2">{error}</p>
-          )}
-          <p className="text-gray-600 dark:text-gray-400">
-            {walletState.accounts[0]
-              ? `Connected: ${walletState.accounts[0].slice(0, 6)}...${walletState.accounts[0].slice(-4)}`
-              : 'Disconnected'}
-          </p>
-          {signature && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              Message signed ✓
-            </p>
-          )}
-          {walletState.chainId && walletState.chainId !== REQUIRED_CHAIN_ID && (
-            <p className="text-yellow-500 dark:text-yellow-400 mt-2">
-              Please switch to Ethereum Mainnet
-            </p>
-          )}
-        </div>
-
-        {!walletState.connected && (
-          <button
-            onClick={connect}
-            disabled={isLoading}
-            className={`rounded-full bg-black dark:bg-white text-white dark:text-black px-6 py-3 
-                     font-semibold transition-all hover:bg-gray-800 dark:hover:bg-gray-200
-                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isLoading ? 'Connecting...' : 'Connect Wallet'}
-          </button>
+    <div className="flex flex-col items-center gap-4">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold mb-2">MetaMask Connection</h2>
+        {error && (
+          <p className="text-red-500 mb-2">{error}</p>
         )}
-
-        {walletState.connected && (
-          <button
-            onClick={disconnect}
-            disabled={isLoading}
-            className={`rounded-full border border-black/[.08] dark:border-white/[.145] px-6 py-3
-                     font-semibold transition-colors hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a]
-                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isLoading ? 'Disconnecting...' : 'Disconnect'}
-          </button>
+        {serviceStatus?.connectionStatus === ConnectionStatus.WAITING && (
+          <p className="text-yellow-500">Waiting for MetaMask connection...</p>
         )}
+        <p className="text-gray-600">
+          {walletState.accounts[0]
+            ? `Connected: ${walletState.accounts[0].slice(0, 6)}...${walletState.accounts[0].slice(-4)}`
+            : 'Not connected'}
+        </p>
       </div>
 
-      {showInstallModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full">
-            <h3 className="text-xl font-bold mb-4 text-center">
-              MetaMask Not Detected
-            </h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-6 text-center">
-              {isMobileDevice()
-                ? "Install MetaMask on your mobile device to connect"
-                : "To connect your wallet, please install MetaMask first"}
+      {walletState.connected ? (
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={disconnect}
+            className="rounded-full border border-gray-300 px-6 py-2 
+                     font-semibold transition-colors hover:bg-gray-100"
+          >
+            Disconnect
+          </button>
+
+          <button
+            onClick={signMessage}
+            className="rounded-full bg-green-600 text-white px-6 py-2 
+                     font-semibold transition-all hover:bg-green-700"
+          >
+            Sign Message
+          </button>
+
+          {signature && (
+            <p className="text-sm text-gray-500 mt-2">
+              Message signed successfully! ✓
             </p>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => {
-                  window.location.href = 'https://metamask.io/download/';
-                }}
-                className="w-full rounded-full bg-blue-600 text-white px-6 py-3 
-                         font-semibold transition-all hover:bg-blue-700"
-              >
-                Install MetaMask
-              </button>
-              <button
-                onClick={() => setShowInstallModal(false)}
-                className="w-full rounded-full border border-gray-300 dark:border-gray-600 
-                         px-6 py-3 font-semibold transition-colors 
-                         hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+          )}
         </div>
+      ) : (
+        <button
+          onClick={connect}
+          disabled={isLoading}
+          className={`rounded-full bg-blue-600 text-white px-6 py-2 
+                     font-semibold transition-all hover:bg-blue-700
+                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {isLoading ? 'Connecting...' : 'Connect Wallet'}
+        </button>
       )}
-    </>
+    </div>
   );
 }
