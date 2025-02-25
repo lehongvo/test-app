@@ -12,6 +12,7 @@
     "@metamask/providers": "^20.0.0",
     "@metamask/sdk": "^0.32.0",
     "@metamask/sdk-communication-layer": "^0.32.0",
+    "ethers": "5.7.2",
     "next": "15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

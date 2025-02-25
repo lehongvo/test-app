@@ -2,6 +2,7 @@
 
 import { CommunicationLayerPreference, MetaMaskSDK } from '@metamask/sdk';
 import { ConnectionStatus, EventType, ServiceStatus } from '@metamask/sdk-communication-layer';
+import { ethers } from 'ethers';
 import { useEffect, useState } from 'react';
 
 interface WalletState {
@@ -44,6 +45,20 @@ interface AddEthereumChainParameter {
   blockExplorerUrls?: string[];
 }
 
+// Thêm constant cho token address và ABI
+const WB_TOKEN_ADDRESS = '0x7Dd44ADc9fE2b7594F1d518d74D0E6C5D0B402dE';
+const WB_TOKEN_ABI = [
+  {
+    "constant": true,
+    "inputs": [],
+    "name": "totalSupply",
+    "outputs": [{ "name": "", "type": "uint256" }],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
+
 export default function MetaMaskConnect() {
   const [sdk, setSDK] = useState<MetaMaskSDK>();
   const [walletState, setWalletState] = useState<WalletState>({
@@ -57,6 +72,7 @@ export default function MetaMaskConnect() {
   const [error, setError] = useState<string | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [totalSupply, setTotalSupply] = useState<string>('');
 
   // Constants
   const REQUIRED_CHAIN_ID = '0x2761'; // Japan Open Chain Testnet
@@ -328,6 +344,48 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Thêm hàm để lấy totalSupply sử dụng ethers
+  const getTotalSupply = async () => {
+    try {
+      if (!sdk?.isInitialized()) {
+        throw new Error('SDK not initialized');
+      }
+
+      const ethereum = sdk.getProvider();
+
+      // Tạo Web3Provider từ MetaMask provider
+      const provider = new ethers.providers.Web3Provider(ethereum as EthereumProvider);
+
+      // Tạo contract instance
+      const contract = new ethers.Contract(
+        WB_TOKEN_ADDRESS,
+        WB_TOKEN_ABI,
+        provider
+      );
+
+      // Gọi hàm totalSupply
+      const supply = await contract.totalSupply();
+
+      // Format số với ethers.utils
+      const formattedSupply = ethers.utils.formatUnits(supply, 18); // Assuming 18 decimals
+      setTotalSupply(Number(formattedSupply).toLocaleString());
+
+      return formattedSupply;
+    } catch (error) {
+      console.error('Error getting total supply:', error);
+      const mmError = error as MetaMaskError;
+      setError(mmError.message || 'Failed to get total supply');
+      return null;
+    }
+  };
+
+  // Thêm useEffect để lấy totalSupply khi kết nối thành công
+  useEffect(() => {
+    if (walletState.connected) {
+      getTotalSupply();
+    }
+  }, [walletState.connected]);
+
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="text-center">
@@ -368,6 +426,25 @@ export default function MetaMaskConnect() {
               Message signed successfully! ✓
             </p>
           )}
+
+          {totalSupply && (
+            <div className="text-center mt-4">
+              <p className="text-gray-600 dark:text-gray-400">
+                WB Token Total Supply:
+              </p>
+              <p className="text-xl font-bold">
+                {totalSupply} WB
+              </p>
+            </div>
+          )}
+
+          <button
+            onClick={getTotalSupply}
+            className="rounded-full bg-purple-600 text-white px-6 py-2 
+                     font-semibold transition-all hover:bg-purple-700"
+          >
+            Refresh Total Supply
+          </button>
         </div>
       ) : (
         <button
