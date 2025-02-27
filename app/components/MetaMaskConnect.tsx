@@ -145,22 +145,60 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Sửa lại hàm checkMetaMaskMobile
+  const checkMetaMaskMobile = () => {
+    // Check if ethereum provider exists
+    const ethereum = window?.ethereum;
+
+    // Check if we're in a mobile browser
+    const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
+
+    if (isMobile) {
+      // On mobile, we can check if we're in MetaMask browser by checking userAgent
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isMetaMaskBrowser = userAgent.includes('metamask');
+
+      // Additional check for ethereum provider
+      return ethereum?.isMetaMask && isMetaMaskBrowser;
+    }
+
+    return false;
+  };
+
+  // Sửa lại hàm checkMetaMask
+  const checkMetaMask = () => {
+    const ethereum = window?.ethereum;
+    const currentDeviceType = detectDevice();
+
+    if (currentDeviceType === 'desktop') {
+      // Desktop: check for MetaMask extension
+      if (!ethereum?.isMetaMask) {
+        setDeviceType('desktop');
+        setNeedsMetaMask(true);
+      } else {
+        setNeedsMetaMask(false);
+      }
+    } else {
+      // Mobile: check for MetaMask browser
+      const isMetaMaskBrowser = checkMetaMaskMobile();
+      if (!isMetaMaskBrowser) {
+        setDeviceType(currentDeviceType);
+        setNeedsMetaMask(true);
+      } else {
+        setNeedsMetaMask(false);
+      }
+    }
+  };
+
   // Thêm useEffect để check MetaMask khi component mount
   useEffect(() => {
-    const checkMetaMask = () => {
-      // Check if window.ethereum exists
-      const ethereum = window?.ethereum;
-      if (!ethereum?.isMetaMask) {
-        setDeviceType(detectDevice());
-        setNeedsMetaMask(true);
-      }
-    };
-
     checkMetaMask();
-  }, []); // Empty dependency array means this runs once when component mounts
+  }, []);
 
   // Modify initSDK function in the first useEffect
   useEffect(() => {
+    let mounted = true;
+
     const initSDK = async () => {
       try {
         // Skip SDK initialization if MetaMask is not installed
@@ -173,7 +211,7 @@ export default function MetaMaskConnect() {
             name: "My Web3 App",
             url: window.location.href,
           },
-          checkInstallationImmediately: false,
+          checkInstallationImmediately: true,
           useDeeplink: true,
           communicationServerUrl: undefined,
           logging: {
@@ -192,25 +230,29 @@ export default function MetaMaskConnect() {
 
         await MMSDK.init();
 
-        if (!MMSDK.isInitialized()) {
-          throw new Error('SDK initialization failed');
+        if (mounted) {
+          if (!MMSDK.isInitialized()) {
+            throw new Error('SDK initialization failed');
+          }
+          setSDK(MMSDK);
         }
-
-        setSDK(MMSDK);
       } catch (error) {
-        console.error('Error initializing MetaMask SDK:', error);
-        setError('Failed to initialize MetaMask SDK');
+        if (mounted) {
+          console.error('Error initializing MetaMask SDK:', error);
+          setError('Failed to initialize MetaMask SDK');
+        }
       }
     };
 
     initSDK();
 
     return () => {
+      mounted = false;
       if (sdk?.isInitialized()) {
         sdk.terminate();
       }
     };
-  }, [needsMetaMask]); // Add needsMetaMask as dependency
+  }, [needsMetaMask]);
 
   useEffect(() => {
     if (!sdk?.isInitialized()) return;
@@ -326,10 +368,17 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Sửa lại hàm connect
   const connect = async () => {
     try {
       setIsLoading(true);
       setError(null);
+
+      // Kiểm tra MetaMask trước khi khởi tạo SDK
+      checkMetaMask();
+      if (needsMetaMask) {
+        return;
+      }
 
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
@@ -337,21 +386,19 @@ export default function MetaMaskConnect() {
 
       const ethereum = sdk.getProvider();
 
-      // Check if MetaMask is installed
-      if (!ethereum?.isMetaMask) {
-        setDeviceType(detectDevice());
-        setNeedsMetaMask(true);
-        return;
+      // Kiểm tra xem provider có hợp lệ không
+      if (!ethereum || !ethereum.request) {
+        throw new Error('Invalid Ethereum provider');
       }
 
-      const accounts = await ethereum?.request({
+      const accounts = await ethereum.request({
         method: 'eth_requestAccounts'
       }) as string[];
 
       if (accounts?.length > 0) {
         await switchNetwork(ethereum as EthereumProvider);
 
-        const chainId = await ethereum?.request({
+        const chainId = await ethereum.request({
           method: 'eth_chainId'
         }) as string;
 
