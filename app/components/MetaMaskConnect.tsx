@@ -145,9 +145,29 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Thêm useEffect để check MetaMask khi component mount
+  useEffect(() => {
+    const checkMetaMask = () => {
+      // Check if window.ethereum exists
+      const ethereum = window?.ethereum;
+      if (!ethereum?.isMetaMask) {
+        setDeviceType(detectDevice());
+        setNeedsMetaMask(true);
+      }
+    };
+
+    checkMetaMask();
+  }, []); // Empty dependency array means this runs once when component mounts
+
+  // Modify initSDK function in the first useEffect
   useEffect(() => {
     const initSDK = async () => {
       try {
+        // Skip SDK initialization if MetaMask is not installed
+        if (needsMetaMask) {
+          return;
+        }
+
         const MMSDK = new MetaMaskSDK({
           dappMetadata: {
             name: "My Web3 App",
@@ -190,7 +210,7 @@ export default function MetaMaskConnect() {
         sdk.terminate();
       }
     };
-  }, []);
+  }, [needsMetaMask]); // Add needsMetaMask as dependency
 
   useEffect(() => {
     if (!sdk?.isInitialized()) return;
@@ -407,7 +427,6 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Thêm hàm để lấy totalSupply sử dụng ethers
   const getTotalSupply = async () => {
     try {
       if (!sdk?.isInitialized()) {
@@ -442,7 +461,6 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Thêm hàm getBalance
   const getBalance = async () => {
     try {
       if (!sdk?.isInitialized() || !walletState.accounts[0]) {
@@ -469,14 +487,12 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Thêm useEffect để lấy totalSupply khi kết nối thành công
   useEffect(() => {
     if (walletState.connected) {
       getTotalSupply();
     }
   }, [walletState.connected]);
 
-  // Thêm useEffect để lấy balance khi kết nối hoặc sau khi nhận token
   useEffect(() => {
     if (walletState.connected) {
       getBalance();
@@ -555,7 +571,7 @@ export default function MetaMaskConnect() {
         {error && (
           <p className="text-red-500 mb-2">{error}</p>
         )}
-        {serviceStatus?.connectionStatus === ConnectionStatus.WAITING && (
+        {!needsMetaMask && serviceStatus?.connectionStatus === ConnectionStatus.WAITING && (
           <p className="text-yellow-500">Waiting for MetaMask connection...</p>
         )}
         <p className="text-gray-600">
