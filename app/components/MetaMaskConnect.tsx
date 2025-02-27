@@ -257,7 +257,7 @@ export default function MetaMaskConnect() {
         sdk.terminate();
       }
     };
-  }, [needsMetaMask]);
+  }, [needsMetaMask, CHAIN_CONFIG.rpcUrls, sdk]);
 
   useEffect(() => {
     if (!sdk?.isInitialized()) return;
@@ -373,8 +373,8 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Sửa lại hàm connect
-  const connect = async () => {
+  // Xóa hàm connect không sử dụng và thay thế bằng handleConnect
+  const handleConnect = async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -540,17 +540,19 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Sửa useEffect cho getTotalSupply
   useEffect(() => {
     if (walletState.connected) {
       getTotalSupply();
     }
-  }, [walletState.connected]);
+  }, [walletState.connected, getTotalSupply]);
 
+  // Sửa useEffect cho getBalance  
   useEffect(() => {
     if (walletState.connected) {
       getBalance();
     }
-  }, [walletState.connected]);
+  }, [walletState.connected, getBalance]);
 
   const requestFaucet = async () => {
     try {
@@ -707,7 +709,7 @@ export default function MetaMaskConnect() {
         </div>
       ) : (
         <button
-          onClick={connect}
+          onClick={handleConnect}
           disabled={isLoading}
           className={`rounded-full bg-blue-600 text-white px-6 py-2 font-semibold transition-all hover:bg-blue-700 ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
