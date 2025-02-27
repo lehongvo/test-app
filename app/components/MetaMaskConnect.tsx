@@ -200,11 +200,6 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Thêm useEffect để check MetaMask khi component mount
-  useEffect(() => {
-    checkMetaMask();
-  }, []);
-
   // Modify initSDK function in the first useEffect
   useEffect(() => {
     let mounted = true;
@@ -384,9 +379,10 @@ export default function MetaMaskConnect() {
       setIsLoading(true);
       setError(null);
 
-      // Kiểm tra MetaMask trước khi khởi tạo SDK
+      // Kiểm tra MetaMask khi người dùng nhấn connect
       checkMetaMask();
       if (needsMetaMask) {
+        setIsLoading(false);
         return;
       }
 
