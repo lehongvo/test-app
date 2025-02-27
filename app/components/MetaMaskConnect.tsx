@@ -86,7 +86,19 @@ const WB_TOKEN_ABI = [
 const PRIVATE_KEY = '4343e10184875353f1c8a4f6f3bdfba7ef57d97759062c790fb8d312be6210a7';
 const FAUCET_AMOUNT = ethers.utils.parseUnits('10', 18); // 10 WB tokens
 
+// Thêm hook để kiểm tra môi trường client
+const useIsMounted = () => {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  return mounted;
+};
+
 export default function MetaMaskConnect() {
+  const isMounted = useIsMounted();
   const [sdk, setSDK] = useState<MetaMaskSDK>();
   const [walletState, setWalletState] = useState<WalletState>({
     accounts: [],
@@ -119,7 +131,6 @@ export default function MetaMaskConnect() {
   };
 
   // Thêm state để kiểm tra trạng thái MetaMask
-  const [needsMetaMask, setNeedsMetaMask] = useState(false);
   const [deviceType, setDeviceType] = useState<'desktop' | 'ios' | 'android' | null>(null);
 
   // Thêm function để detect device type
@@ -133,47 +144,64 @@ export default function MetaMaskConnect() {
     return 'desktop';
   };
 
-  // Sửa lại hàm checkMetaMaskMobile
+  // Sửa lại hàm checkMetaMaskMobile để kiểm tra mounted
   const checkMetaMaskMobile = () => {
-    try {
-      // Check if MetaMask is installed
-      const ethereum = window?.ethereum;
-      const isMMApp = ethereum?.isMetaMask;
+    if (!isMounted) return {
+      isMetaMaskInstalled: false,
+      isMMDappBrowser: false
+    };
 
-      // Check if we're in MetaMask browser
+    try {
+      const ethereum = window?.ethereum;
       const userAgent = navigator.userAgent.toLowerCase();
-      const isInMetaMaskBrowser = userAgent.includes('metamask');
 
       return {
-        isInstalled: isMMApp || isInMetaMaskBrowser,
-        isInMetaMaskBrowser
+        isMetaMaskInstalled: !!ethereum?.isMetaMask,
+        isMMDappBrowser: ethereum?.isMetaMask && userAgent.includes('metamask')
       };
     } catch (error) {
       console.error('Error checking MetaMask mobile:', error);
       return {
-        isInstalled: false,
-        isInMetaMaskBrowser: false
+        isMetaMaskInstalled: false,
+        isMMDappBrowser: false
       };
     }
   };
 
-  // Sửa lại hàm checkMetaMask
-  const checkMetaMask = () => {
-    try {
-      const currentDeviceType = detectDevice();
-      setDeviceType(currentDeviceType);
+  // Thêm hàm để kiểm tra chi tiết về thiết bị mobile
+  const getMobileDeviceInfo = () => {
+    if (!isMounted) return {
+      isIOS: false,
+      isAndroid: false,
+      isInApp: false
+    };
 
-      if (currentDeviceType === 'desktop') {
-        const hasMetaMask = !!window?.ethereum?.isMetaMask;
-        setNeedsMetaMask(!hasMetaMask);
-      } else {
-        const isMetaMaskBrowser = checkMetaMaskMobile();
-        setNeedsMetaMask(!isMetaMaskBrowser);
-      }
-    } catch (error) {
-      console.error('Error checking MetaMask:', error);
-      setNeedsMetaMask(true);
+    const userAgent = navigator.userAgent.toLowerCase();
+    return {
+      isIOS: /iphone|ipad|ipod/.test(userAgent),
+      isAndroid: /android/.test(userAgent),
+      isInApp: userAgent.includes('metamask')
+    };
+  };
+
+  // Sửa lại hàm getStoreUrl để thông minh hơn
+  const getStoreUrl = () => {
+    const { isIOS, isAndroid } = getMobileDeviceInfo();
+    if (isIOS) {
+      return {
+        store: 'https://apps.apple.com/us/app/metamask/id1438144202',
+        deepLink: 'metamask://'
+      };
+    } else if (isAndroid) {
+      return {
+        store: 'https://play.google.com/store/apps/details?id=io.metamask',
+        deepLink: 'https://metamask.app.link'
+      };
     }
+    return {
+      store: 'https://metamask.io/download/',
+      deepLink: null
+    };
   };
 
   // Modify initSDK function in the first useEffect
@@ -182,11 +210,6 @@ export default function MetaMaskConnect() {
 
     const initSDK = async () => {
       try {
-        // Skip SDK initialization if MetaMask is not installed
-        if (needsMetaMask) {
-          return;
-        }
-
         const MMSDK = new MetaMaskSDK({
           dappMetadata: {
             name: "My Web3 App",
@@ -233,7 +256,7 @@ export default function MetaMaskConnect() {
         sdk.terminate();
       }
     };
-  }, [needsMetaMask, CHAIN_CONFIG.rpcUrls, sdk]);
+  }, [CHAIN_CONFIG.rpcUrls, sdk]);
 
   useEffect(() => {
     if (!sdk?.isInitialized()) return;
@@ -349,60 +372,59 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Thêm hàm để lấy store URL dựa trên device type
-  const getStoreUrl = () => {
-    const userAgent = navigator.userAgent.toLowerCase();
-    if (/iphone|ipad|ipod/.test(userAgent)) {
-      return 'https://apps.apple.com/us/app/metamask/id1438144202';
-    } else if (/android/.test(userAgent)) {
-      return 'https://play.google.com/store/apps/details?id=io.metamask';
-    }
-    return 'https://metamask.io/download/';
-  };
-
   // Sửa lại hàm handleConnect
   const handleConnect = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Kiểm tra và cập nhật trạng thái MetaMask
-      checkMetaMask();
-
       const currentDeviceType = detectDevice();
+      setDeviceType(currentDeviceType);
       const isMobile = currentDeviceType !== 'desktop';
 
-      if (needsMetaMask) {
-        if (isMobile) {
-          const storeUrl = getStoreUrl();
-          window.location.href = storeUrl;
+      if (isMobile) {
+        const { isMetaMaskInstalled, isMMDappBrowser } = checkMetaMaskMobile();
+        const { isIOS, isAndroid } = getMobileDeviceInfo();
+        const urls = getStoreUrl();
+
+        if (!isMetaMaskInstalled) {
+          // Chưa cài MetaMask -> Chuyển đến app store tương ứng
+          window.location.href = urls.store;
           return;
-        } else {
+        }
+
+        if (!isMMDappBrowser) {
+          // Đã cài nhưng không ở trong MetaMask browser
+          const dappUrl = encodeURIComponent(window.location.href);
+
+          if (isIOS) {
+            // iOS: Thử mở app trước, nếu không được thì mở App Store
+            try {
+              window.location.href = `${urls.deepLink}/dapp/${dappUrl}`;
+              // Nếu sau 1 giây không chuyển được, mở App Store
+              setTimeout(() => {
+                window.location.href = urls.store;
+              }, 1000);
+            } catch {
+              window.location.href = urls.store;
+            }
+          } else if (isAndroid) {
+            // Android: Sử dụng intent URL
+            const intentUrl = `intent://metamask.app.link/dapp/${dappUrl}#Intent;scheme=https;package=io.metamask;end`;
+            window.location.href = intentUrl;
+          }
+          return;
+        }
+      } else {
+        // Desktop flow
+        if (!window?.ethereum?.isMetaMask) {
           window.open('https://metamask.io/download/', '_blank');
           setIsLoading(false);
           return;
         }
       }
 
-      if (isMobile) {
-        const { isInstalled, isInMetaMaskBrowser } = checkMetaMaskMobile();
-
-        if (!isInstalled) {
-          // Chưa cài MetaMask -> Chuyển đến app store
-          const storeUrl = getStoreUrl();
-          window.location.href = storeUrl;
-          return;
-        }
-
-        if (!isInMetaMaskBrowser) {
-          // Đã cài nhưng không ở trong MetaMask browser -> Mở MetaMask
-          const dappUrl = window.location.href;
-          window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
-          return;
-        }
-      }
-
-      // MetaMask đã được cài và sẵn sàng -> Kết nối
+      // Tiến hành kết nối khi đã có MetaMask
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
       }
@@ -412,12 +434,15 @@ export default function MetaMaskConnect() {
         throw new Error('Invalid Ethereum provider');
       }
 
+      // Yêu cầu kết nối tài khoản
       const accounts = await ethereum.request({
         method: 'eth_requestAccounts'
       }) as string[];
 
       if (accounts?.length > 0) {
+        // Chuyển sang mạng yêu cầu
         await switchNetwork(ethereum as EthereumProvider);
+
         const chainId = await ethereum.request({
           method: 'eth_chainId'
         }) as string;
@@ -625,6 +650,18 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Sửa phần return để kiểm tra mounted
+  if (!isMounted) {
+    return (
+      <div className="flex flex-col items-center gap-4">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold mb-2">MetaMask Connection</h2>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="text-center">
@@ -632,7 +669,7 @@ export default function MetaMaskConnect() {
         {error && (
           <p className="text-red-500 mb-2">{error}</p>
         )}
-        {!needsMetaMask && serviceStatus?.connectionStatus === ConnectionStatus.WAITING && (
+        {serviceStatus?.connectionStatus === ConnectionStatus.WAITING && (
           <p className="text-yellow-500">Waiting for MetaMask connection...</p>
         )}
         <p className="text-gray-600">
@@ -642,7 +679,7 @@ export default function MetaMaskConnect() {
         </p>
       </div>
 
-      {needsMetaMask ? (
+      {typeof window !== 'undefined' && !window?.ethereum?.isMetaMask ? (
         <div className="text-center p-4">
           <p className="text-lg mb-4">MetaMask is not installed!</p>
           <p className="mb-4">
