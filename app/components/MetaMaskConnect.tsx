@@ -3,7 +3,7 @@
 import { CommunicationLayerPreference, MetaMaskSDK } from '@metamask/sdk';
 import { ConnectionStatus, EventType, ServiceStatus } from '@metamask/sdk-communication-layer';
 import { ethers } from 'ethers';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface WalletState {
   accounts: string[];
@@ -133,70 +133,40 @@ export default function MetaMaskConnect() {
     return 'desktop';
   };
 
-  // Thêm function để lấy link tải MetaMask
-  const getMetaMaskDownloadLink = () => {
-    switch (deviceType) {
-      case 'ios':
-        return 'https://apps.apple.com/us/app/metamask/id1438144202';
-      case 'android':
-        return 'https://play.google.com/store/apps/details?id=io.metamask';
-      default:
-        return 'https://metamask.io/download/';
-    }
-  };
-
   // Sửa lại hàm checkMetaMaskMobile
   const checkMetaMaskMobile = () => {
-    // Check if we're in a mobile browser
-    const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
-
-    if (isMobile) {
-      // Check if we're in MetaMask's browser by checking if it's injected ethereum
+    try {
+      // Check if we're in MetaMask's browser
       const ethereum = window?.ethereum;
-
-      // MetaMask mobile injects a specific property
       const isMMApp = ethereum?.isMetaMask;
 
-      // Also check if we're actually in the MetaMask app
+      // Check user agent for MetaMask app
       const userAgent = navigator.userAgent.toLowerCase();
       const isInApp = userAgent.includes('metamask');
 
-      console.log('Mobile checks:', {
-        isMMApp,
-        isInApp,
-        userAgent,
-        ethereum: !!ethereum
-      });
-
-      // Return true if either condition is met
       return isMMApp || isInApp;
+    } catch (error) {
+      console.error('Error checking MetaMask mobile:', error);
+      return false;
     }
-
-    return false;
   };
 
   // Sửa lại hàm checkMetaMask
   const checkMetaMask = () => {
-    const ethereum = window?.ethereum;
-    const currentDeviceType = detectDevice();
-
-    console.log('Device type:', currentDeviceType);
-    console.log('Ethereum provider:', !!ethereum);
-
-    if (currentDeviceType === 'desktop') {
-      // Desktop: check for MetaMask extension
-      const hasMetaMask = !!ethereum?.isMetaMask;
-      console.log('Desktop MetaMask:', hasMetaMask);
-
-      setDeviceType('desktop');
-      setNeedsMetaMask(!hasMetaMask);
-    } else {
-      // Mobile: check for MetaMask browser
-      const isMetaMaskBrowser = checkMetaMaskMobile();
-      console.log('Mobile MetaMask:', isMetaMaskBrowser);
-
+    try {
+      const currentDeviceType = detectDevice();
       setDeviceType(currentDeviceType);
-      setNeedsMetaMask(!isMetaMaskBrowser);
+
+      if (currentDeviceType === 'desktop') {
+        const hasMetaMask = !!window?.ethereum?.isMetaMask;
+        setNeedsMetaMask(!hasMetaMask);
+      } else {
+        const isMetaMaskBrowser = checkMetaMaskMobile();
+        setNeedsMetaMask(!isMetaMaskBrowser);
+      }
+    } catch (error) {
+      console.error('Error checking MetaMask:', error);
+      setNeedsMetaMask(true);
     }
   };
 
@@ -373,26 +343,36 @@ export default function MetaMaskConnect() {
     }
   };
 
-  // Xóa hàm connect không sử dụng và thay thế bằng handleConnect
+  // Sửa lại hàm handleConnect
   const handleConnect = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      // Kiểm tra MetaMask khi người dùng nhấn connect
+      // Kiểm tra MetaMask
       checkMetaMask();
+
       if (needsMetaMask) {
+        // Xử lý chuyển hướng mobile
+        if (deviceType !== 'desktop') {
+          const dappUrl = window.location.href;
+          const mmDeepLink = `https://metamask.app.link/dapp/${dappUrl}`;
+          window.location.href = mmDeepLink;
+          return;
+        }
+
+        // Xử lý desktop
+        window.open('https://metamask.io/download/', '_blank');
         setIsLoading(false);
         return;
       }
 
+      // Tiếp tục kết nối nếu đã có MetaMask
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
       }
 
       const ethereum = sdk.getProvider();
-
-      // Kiểm tra xem provider có hợp lệ không
       if (!ethereum || !ethereum.request) {
         throw new Error('Invalid Ethereum provider');
       }
@@ -403,7 +383,6 @@ export default function MetaMaskConnect() {
 
       if (accounts?.length > 0) {
         await switchNetwork(ethereum as EthereumProvider);
-
         const chainId = await ethereum.request({
           method: 'eth_chainId'
         }) as string;
@@ -480,29 +459,22 @@ export default function MetaMaskConnect() {
     }
   };
 
-  const getTotalSupply = async () => {
+  const getTotalSupply = useCallback(async () => {
     try {
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
       }
 
       const ethereum = sdk.getProvider();
-
-      // Tạo Web3Provider từ MetaMask provider
       const provider = new ethers.providers.Web3Provider(ethereum as EthereumProvider);
-
-      // Tạo contract instance
       const contract = new ethers.Contract(
         WB_TOKEN_ADDRESS,
         WB_TOKEN_ABI,
         provider
       );
 
-      // Gọi hàm totalSupply
       const supply = await contract.totalSupply();
-
-      // Format số với ethers.utils
-      const formattedSupply = ethers.utils.formatUnits(supply, 18); // Assuming 18 decimals
+      const formattedSupply = ethers.utils.formatUnits(supply, 18);
       setTotalSupply(Number(formattedSupply).toLocaleString());
 
       return formattedSupply;
@@ -512,9 +484,9 @@ export default function MetaMaskConnect() {
       setError(mmError.message || 'Failed to get total supply');
       return null;
     }
-  };
+  }, [sdk, setError, setTotalSupply]);
 
-  const getBalance = async () => {
+  const getBalance = useCallback(async () => {
     try {
       if (!sdk?.isInitialized() || !walletState.accounts[0]) {
         return null;
@@ -522,7 +494,6 @@ export default function MetaMaskConnect() {
 
       const ethereum = sdk.getProvider();
       const provider = new ethers.providers.Web3Provider(ethereum as EthereumProvider);
-
       const contract = new ethers.Contract(
         WB_TOKEN_ADDRESS,
         WB_TOKEN_ABI,
@@ -538,7 +509,7 @@ export default function MetaMaskConnect() {
       console.error('Error getting balance:', error);
       return null;
     }
-  };
+  }, [sdk, walletState.accounts, setBalance]);
 
   // Sửa useEffect cho getTotalSupply
   useEffect(() => {
@@ -644,14 +615,12 @@ export default function MetaMaskConnect() {
               ? 'Please install the MetaMask browser extension to continue.'
               : 'Please install the MetaMask mobile app to continue.'}
           </p>
-          <a
-            href={getMetaMaskDownloadLink()}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={handleConnect}
             className="rounded-full bg-orange-500 text-white px-6 py-2 font-semibold transition-all hover:bg-orange-600"
           >
-            Download MetaMask
-          </a>
+            {deviceType === 'desktop' ? 'Install MetaMask' : 'Open in MetaMask'}
+          </button>
         </div>
       ) : walletState.connected ? (
         <div className="flex flex-col gap-2">
