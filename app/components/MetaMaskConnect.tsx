@@ -147,19 +147,29 @@ export default function MetaMaskConnect() {
 
   // Sửa lại hàm checkMetaMaskMobile
   const checkMetaMaskMobile = () => {
-    // Check if ethereum provider exists
-    const ethereum = window?.ethereum;
-
     // Check if we're in a mobile browser
     const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
 
     if (isMobile) {
-      // On mobile, we can check if we're in MetaMask browser by checking userAgent
-      const userAgent = navigator.userAgent.toLowerCase();
-      const isMetaMaskBrowser = userAgent.includes('metamask');
+      // Check if we're in MetaMask's browser by checking if it's injected ethereum
+      const ethereum = window?.ethereum;
 
-      // Additional check for ethereum provider
-      return ethereum?.isMetaMask && isMetaMaskBrowser;
+      // MetaMask mobile injects a specific property
+      const isMMApp = ethereum?.isMetaMask;
+
+      // Also check if we're actually in the MetaMask app
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isInApp = userAgent.includes('metamask');
+
+      console.log('Mobile checks:', {
+        isMMApp,
+        isInApp,
+        userAgent,
+        ethereum: !!ethereum
+      });
+
+      // Return true if either condition is met
+      return isMMApp || isInApp;
     }
 
     return false;
@@ -170,23 +180,23 @@ export default function MetaMaskConnect() {
     const ethereum = window?.ethereum;
     const currentDeviceType = detectDevice();
 
+    console.log('Device type:', currentDeviceType);
+    console.log('Ethereum provider:', !!ethereum);
+
     if (currentDeviceType === 'desktop') {
       // Desktop: check for MetaMask extension
-      if (!ethereum?.isMetaMask) {
-        setDeviceType('desktop');
-        setNeedsMetaMask(true);
-      } else {
-        setNeedsMetaMask(false);
-      }
+      const hasMetaMask = !!ethereum?.isMetaMask;
+      console.log('Desktop MetaMask:', hasMetaMask);
+
+      setDeviceType('desktop');
+      setNeedsMetaMask(!hasMetaMask);
     } else {
       // Mobile: check for MetaMask browser
       const isMetaMaskBrowser = checkMetaMaskMobile();
-      if (!isMetaMaskBrowser) {
-        setDeviceType(currentDeviceType);
-        setNeedsMetaMask(true);
-      } else {
-        setNeedsMetaMask(false);
-      }
+      console.log('Mobile MetaMask:', isMetaMaskBrowser);
+
+      setDeviceType(currentDeviceType);
+      setNeedsMetaMask(!isMetaMaskBrowser);
     }
   };
 
