@@ -118,6 +118,33 @@ export default function MetaMaskConnect() {
     blockExplorerUrls: ['https://testnet.japanopenchain.org']
   };
 
+  // Thêm state để kiểm tra trạng thái MetaMask
+  const [needsMetaMask, setNeedsMetaMask] = useState(false);
+  const [deviceType, setDeviceType] = useState<'desktop' | 'ios' | 'android' | null>(null);
+
+  // Thêm function để detect device type
+  const detectDevice = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|ipod/.test(userAgent)) {
+      return 'ios';
+    } else if (/android/.test(userAgent)) {
+      return 'android';
+    }
+    return 'desktop';
+  };
+
+  // Thêm function để lấy link tải MetaMask
+  const getMetaMaskDownloadLink = () => {
+    switch (deviceType) {
+      case 'ios':
+        return 'https://apps.apple.com/us/app/metamask/id1438144202';
+      case 'android':
+        return 'https://play.google.com/store/apps/details?id=io.metamask';
+      default:
+        return 'https://metamask.io/download/';
+    }
+  };
+
   useEffect(() => {
     const initSDK = async () => {
       try {
@@ -289,6 +316,13 @@ export default function MetaMaskConnect() {
       }
 
       const ethereum = sdk.getProvider();
+
+      // Check if MetaMask is installed
+      if (!ethereum?.isMetaMask) {
+        setDeviceType(detectDevice());
+        setNeedsMetaMask(true);
+        return;
+      }
 
       const accounts = await ethereum?.request({
         method: 'eth_requestAccounts'
@@ -531,20 +565,35 @@ export default function MetaMaskConnect() {
         </p>
       </div>
 
-      {walletState.connected ? (
+      {needsMetaMask ? (
+        <div className="text-center p-4">
+          <p className="text-lg mb-4">MetaMask is not installed!</p>
+          <p className="mb-4">
+            {deviceType === 'desktop'
+              ? 'Please install the MetaMask browser extension to continue.'
+              : 'Please install the MetaMask mobile app to continue.'}
+          </p>
+          <a
+            href={getMetaMaskDownloadLink()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full bg-orange-500 text-white px-6 py-2 font-semibold transition-all hover:bg-orange-600"
+          >
+            Download MetaMask
+          </a>
+        </div>
+      ) : walletState.connected ? (
         <div className="flex flex-col gap-2">
           <button
             onClick={disconnect}
-            className="rounded-full border border-gray-300 px-6 py-2 
-                     font-semibold transition-colors hover:bg-gray-100"
+            className="rounded-full border border-gray-300 px-6 py-2 font-semibold transition-colors hover:bg-gray-100"
           >
             Disconnect
           </button>
 
           <button
             onClick={signMessage}
-            className="rounded-full bg-green-600 text-white px-6 py-2 
-                     font-semibold transition-all hover:bg-green-700"
+            className="rounded-full bg-green-600 text-white px-6 py-2 font-semibold transition-all hover:bg-green-700"
           >
             Sign Message
           </button>
@@ -582,9 +631,7 @@ export default function MetaMaskConnect() {
           <button
             onClick={requestFaucet}
             disabled={isFaucetLoading}
-            className={`rounded-full bg-yellow-600 text-white px-6 py-2 
-                     font-semibold transition-all hover:bg-yellow-700
-                     ${isFaucetLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`rounded-full bg-yellow-600 text-white px-6 py-2 font-semibold transition-all hover:bg-yellow-700 ${isFaucetLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isFaucetLoading ? 'Getting Tokens...' : 'Get 10 WB Tokens'}
           </button>
@@ -593,9 +640,7 @@ export default function MetaMaskConnect() {
         <button
           onClick={connect}
           disabled={isLoading}
-          className={`rounded-full bg-blue-600 text-white px-6 py-2 
-                     font-semibold transition-all hover:bg-blue-700
-                     ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`rounded-full bg-blue-600 text-white px-6 py-2 font-semibold transition-all hover:bg-blue-700 ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {isLoading ? 'Connecting...' : 'Connect Wallet'}
         </button>
@@ -624,8 +669,7 @@ export default function MetaMaskConnect() {
                   setShowSuccessModal(false);
                   setModalType(null);
                 }}
-                className="rounded-full bg-green-600 text-white px-6 py-2 
-                         font-semibold transition-all hover:bg-green-700"
+                className="rounded-full bg-green-600 text-white px-6 py-2 font-semibold transition-all hover:bg-green-700"
               >
                 Close
               </button>
