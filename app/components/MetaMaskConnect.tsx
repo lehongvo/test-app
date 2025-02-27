@@ -136,18 +136,24 @@ export default function MetaMaskConnect() {
   // Sửa lại hàm checkMetaMaskMobile
   const checkMetaMaskMobile = () => {
     try {
-      // Check if we're in MetaMask's browser
+      // Check if MetaMask is installed
       const ethereum = window?.ethereum;
       const isMMApp = ethereum?.isMetaMask;
 
-      // Check user agent for MetaMask app
+      // Check if we're in MetaMask browser
       const userAgent = navigator.userAgent.toLowerCase();
-      const isInApp = userAgent.includes('metamask');
+      const isInMetaMaskBrowser = userAgent.includes('metamask');
 
-      return isMMApp || isInApp;
+      return {
+        isInstalled: isMMApp || isInMetaMaskBrowser,
+        isInMetaMaskBrowser
+      };
     } catch (error) {
       console.error('Error checking MetaMask mobile:', error);
-      return false;
+      return {
+        isInstalled: false,
+        isInMetaMaskBrowser: false
+      };
     }
   };
 
@@ -360,24 +366,43 @@ export default function MetaMaskConnect() {
       setIsLoading(true);
       setError(null);
 
-      // Kiểm tra MetaMask
+      // Kiểm tra và cập nhật trạng thái MetaMask
       checkMetaMask();
 
+      const currentDeviceType = detectDevice();
+      const isMobile = currentDeviceType !== 'desktop';
+
       if (needsMetaMask) {
-        // Xử lý chuyển hướng mobile
-        if (deviceType !== 'desktop') {
+        if (isMobile) {
+          const storeUrl = getStoreUrl();
+          window.location.href = storeUrl;
+          return;
+        } else {
+          window.open('https://metamask.io/download/', '_blank');
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      if (isMobile) {
+        const { isInstalled, isInMetaMaskBrowser } = checkMetaMaskMobile();
+
+        if (!isInstalled) {
+          // Chưa cài MetaMask -> Chuyển đến app store
           const storeUrl = getStoreUrl();
           window.location.href = storeUrl;
           return;
         }
 
-        // Xử lý desktop
-        window.open('https://metamask.io/download/', '_blank');
-        setIsLoading(false);
-        return;
+        if (!isInMetaMaskBrowser) {
+          // Đã cài nhưng không ở trong MetaMask browser -> Mở MetaMask
+          const dappUrl = window.location.href;
+          window.location.href = `https://metamask.app.link/dapp/${dappUrl}`;
+          return;
+        }
       }
 
-      // Nếu đã có MetaMask, thử kết nối
+      // MetaMask đã được cài và sẵn sàng -> Kết nối
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
       }
