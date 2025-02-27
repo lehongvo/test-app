@@ -343,6 +343,17 @@ export default function MetaMaskConnect() {
     }
   };
 
+  // Thêm hàm để lấy store URL dựa trên device type
+  const getStoreUrl = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (/iphone|ipad|ipod/.test(userAgent)) {
+      return 'https://apps.apple.com/us/app/metamask/id1438144202';
+    } else if (/android/.test(userAgent)) {
+      return 'https://play.google.com/store/apps/details?id=io.metamask';
+    }
+    return 'https://metamask.io/download/';
+  };
+
   // Sửa lại hàm handleConnect
   const handleConnect = async () => {
     try {
@@ -355,9 +366,8 @@ export default function MetaMaskConnect() {
       if (needsMetaMask) {
         // Xử lý chuyển hướng mobile
         if (deviceType !== 'desktop') {
-          const dappUrl = window.location.href;
-          const mmDeepLink = `https://metamask.app.link/dapp/${dappUrl}`;
-          window.location.href = mmDeepLink;
+          const storeUrl = getStoreUrl();
+          window.location.href = storeUrl;
           return;
         }
 
@@ -367,7 +377,7 @@ export default function MetaMaskConnect() {
         return;
       }
 
-      // Tiếp tục kết nối nếu đã có MetaMask
+      // Nếu đã có MetaMask, thử kết nối
       if (!sdk?.isInitialized()) {
         throw new Error('SDK not initialized');
       }
