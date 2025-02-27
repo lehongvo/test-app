@@ -190,17 +190,20 @@ export default function MetaMaskConnect() {
     if (isIOS) {
       return {
         store: 'https://apps.apple.com/us/app/metamask/id1438144202',
-        deepLink: 'metamask://'
+        deepLink: 'metamask://',
+        universalLink: 'https://metamask.app.link'
       };
     } else if (isAndroid) {
       return {
         store: 'https://play.google.com/store/apps/details?id=io.metamask',
-        deepLink: 'https://metamask.app.link'
+        deepLink: 'metamask://',
+        universalLink: 'https://metamask.app.link'
       };
     }
     return {
       store: 'https://metamask.io/download/',
-      deepLink: null
+      deepLink: null,
+      universalLink: null
     };
   };
 
@@ -398,20 +401,32 @@ export default function MetaMaskConnect() {
           const dappUrl = encodeURIComponent(window.location.href);
 
           if (isIOS) {
-            // iOS: Thử mở app trước, nếu không được thì mở App Store
+            // iOS: Thử mở app trước bằng universal link
+            window.location.href = `${urls.universalLink}/dapp/${dappUrl}`;
+
+            // Fallback sau 1 giây nếu không mở được
+            setTimeout(() => {
+              window.location.href = urls.store;
+            }, 1000);
+          } else if (isAndroid) {
+            // Android: Thử các phương thức theo thứ tự
             try {
-              window.location.href = `${urls.deepLink}/dapp/${dappUrl}`;
-              // Nếu sau 1 giây không chuyển được, mở App Store
+              // 1. Thử universal link trước
+              window.location.href = `${urls.universalLink}/dapp/${dappUrl}`;
+
+              // 2. Nếu không được, thử deep link
               setTimeout(() => {
-                window.location.href = urls.store;
+                try {
+                  window.location.href = `${urls.deepLink}/dapp/${dappUrl}`;
+                } catch {
+                  // 3. Cuối cùng mở Play Store
+                  window.location.href = urls.store;
+                }
               }, 1000);
             } catch {
+              // Fallback to Play Store
               window.location.href = urls.store;
             }
-          } else if (isAndroid) {
-            // Android: Sử dụng intent URL
-            const intentUrl = `intent://metamask.app.link/dapp/${dappUrl}#Intent;scheme=https;package=io.metamask;end`;
-            window.location.href = intentUrl;
           }
           return;
         }
