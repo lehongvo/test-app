@@ -172,22 +172,73 @@ const MetaMaskConnect = () => {
   };
 
   return (
-    <div>
-      <h1>MetaMask SDK Demo</h1>
-      <div>
-        {chain && <p>Mạng đang kết nối: {chain}</p>}
-        {account && <p>Địa chỉ ví: {account}</p>}
-        <p>Trạng thái: {connected ? 'Đã kết nối' : 'Chưa kết nối'}</p>
-      </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+      <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="flex flex-col items-center space-y-4">
+          {/* Header */}
+          <h1 className="text-2xl font-bold text-gray-800">MetaMask SDK Demo</h1>
 
-      {!connected ? (
-        <button onClick={connect}>Kết nối với MetaMask</button>
-      ) : (
-        <>
-          <button onClick={disconnect}>Ngắt kết nối</button>
-          <button onClick={signMessage}>Ký message &apos;hello&apos;</button>
-        </>
-      )}
+          {/* Status Section */}
+          <div className="w-full space-y-3 mb-4">
+            <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+              <span className="text-gray-600">Trạng thái</span>
+              <span className={`font-medium ${connected ? 'text-green-600' : 'text-red-600'}`}>
+                {connected ? 'Đã kết nối' : 'Chưa kết nối'}
+              </span>
+            </div>
+
+            {chain && (
+              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                <span className="text-gray-600">Mạng</span>
+                <span className="font-medium text-blue-600">{chain}</span>
+              </div>
+            )}
+
+            {account && (
+              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
+                <span className="text-gray-600">Địa chỉ ví</span>
+                <span className="font-medium text-gray-800">
+                  {`${account.slice(0, 6)}...${account.slice(-4)}`}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="w-full space-y-3">
+            {!connected ? (
+              <button
+                onClick={connect}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z" />
+                </svg>
+                <span>Kết nối với MetaMask</span>
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={signMessage}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200"
+                >
+                  Ký message &apos;hello&apos;
+                </button>
+                <button
+                  onClick={disconnect}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-4 rounded-lg transition-colors duration-200"
+                >
+                  Ngắt kết nối
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
